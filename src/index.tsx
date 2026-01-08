@@ -1,0 +1,740 @@
+import * as React from 'react';
+import * as PropTypes from 'prop-types';
+import cn from 'classnames';
+
+import {
+	computeLineInformation,
+	LineInformation,
+	DiffInformation,
+	DiffType,
+	DiffMethod,
+} from './compute-lines';
+import computeStyles, {
+	ReactDiffViewerStylesOverride,
+	ReactDiffViewerStyles,
+} from './styles';
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const m = require('memoize-one');
+
+const memoize = m.default || m;
+
+export enum LineNumberPrefix {
+	LEFT = 'L',
+	RIGHT = 'R',
+}
+
+export interface ReactDiffViewerProps {
+	// Old value to compare.
+	oldValue: string;
+	// New value to compare.
+	newValue: string;
+	// Enable/Disable split view.
+	splitView?: boolean;
+	// Set line Offset
+	linesOffset?: number;
+	// Enable/Disable word diff.
+	disableWordDiff?: boolean;
+	// JsDiff text diff method from https://github.com/kpdecker/jsdiff/tree/v4.0.1#api
+	compareMethod?: DiffMethod;
+	// Number of unmodified lines surrounding each line diff.
+	extraLinesSurroundingDiff?: number;
+	// Show/hide line number.
+	hideLineNumbers?: boolean;
+	// Show only diff between the two values.
+	showDiffOnly?: boolean;
+	// Render prop to format final string before displaying them in the UI.
+	renderContent?: (source: string) => JSX.Element;
+	// Render prop to format code fold message.
+	codeFoldMessageRenderer?: (
+		totalFoldedLines: number,
+		leftStartLineNumber: number,
+		rightStartLineNumber: number,
+	) => JSX.Element;
+	// Event handler for line number click.
+	onLineNumberClick?: (
+		lineId: string,
+		event: React.MouseEvent<HTMLTableCellElement>,
+	) => void;
+	// Array of line ids to highlight lines.
+	highlightLines?: string[];
+	// Style overrides.
+	styles?: ReactDiffViewerStylesOverride;
+	// Use dark theme.
+	useDarkTheme?: boolean;
+	// Title for left column
+	leftTitle?: string | JSX.Element;
+	// Title for left column
+	rightTitle?: string | JSX.Element;
+	// Comment row content for split view
+	commentRow?: JSX.Element;
+	// Line number after which to display the comment box (0-based index in lineInformation array, or actual rendered line index if showDiffOnly is true)
+	commentRowLineNumber?: number;
+	// End line number for comment box range (0-based index in lineInformation array, or actual rendered line index if showDiffOnly is true)
+	commentRowEndLineNumber?: number;
+}
+
+export interface ReactDiffViewerState {
+	// Array holding the expanded code folding.
+	expandedBlocks?: number[];
+}
+
+class DiffViewer extends React.Component<
+	ReactDiffViewerProps,
+	ReactDiffViewerState
+> {
+	private styles: ReactDiffViewerStyles;
+
+	public static defaultProps: ReactDiffViewerProps = {
+		oldValue: '',
+		newValue: '',
+		splitView: true,
+		highlightLines: [],
+		disableWordDiff: false,
+		compareMethod: DiffMethod.CHARS,
+		styles: {},
+		hideLineNumbers: false,
+		extraLinesSurroundingDiff: 3,
+		showDiffOnly: true,
+		useDarkTheme: false,
+		linesOffset: 0,
+	};
+
+	public static propTypes = {
+		oldValue: PropTypes.string.isRequired,
+		newValue: PropTypes.string.isRequired,
+		splitView: PropTypes.bool,
+		disableWordDiff: PropTypes.bool,
+		compareMethod: PropTypes.oneOf(Object.values(DiffMethod)),
+		renderContent: PropTypes.func,
+		onLineNumberClick: PropTypes.func,
+		extraLinesSurroundingDiff: PropTypes.number,
+		styles: PropTypes.object,
+		hideLineNumbers: PropTypes.bool,
+		showDiffOnly: PropTypes.bool,
+		highlightLines: PropTypes.arrayOf(PropTypes.string),
+		leftTitle: PropTypes.oneOfType([PropTypes.string, PropTypes.element]),
+		rightTitle: PropTypes.oneOfType([PropTypes.string, PropTypes.element]),
+		linesOffset: PropTypes.number,
+	};
+
+	public constructor(props: ReactDiffViewerProps) {
+		super(props);
+
+		this.state = {
+			expandedBlocks: [],
+		};
+	}
+
+	/**
+	 * Resets code block expand to the initial stage. Will be exposed to the parent component via
+	 * refs.
+	 */
+	public resetCodeBlocks = (): boolean => {
+		if (this.state.expandedBlocks.length > 0) {
+			this.setState({
+				expandedBlocks: [],
+			});
+			return true;
+		}
+		return false;
+	};
+
+	/**
+	 * Pushes the target expanded code block to the state. During the re-render,
+	 * this value is used to expand/fold unmodified code.
+	 */
+	private onBlockExpand = (id: number): void => {
+		const prevState = this.state.expandedBlocks.slice();
+		prevState.push(id);
+
+		this.setState({
+			expandedBlocks: prevState,
+		});
+	};
+
+	/**
+	 * Computes final styles for the diff viewer. It combines the default styles with the user
+	 * supplied overrides. The computed styles are cached with performance in mind.
+	 *
+	 * @param styles User supplied style overrides.
+	 */
+	private computeStyles: (
+		styles: ReactDiffViewerStylesOverride,
+		useDarkTheme: boolean,
+	) => ReactDiffViewerStyles = memoize(computeStyles);
+
+	/**
+	 * Returns a function with clicked line number in the closure. Returns an no-op function when no
+	 * onLineNumberClick handler is supplied.
+	 *
+	 * @param id Line id of a line.
+	 */
+	private onLineNumberClickProxy = (id: string): any => {
+		if (this.props.onLineNumberClick) {
+			return (e: any): void => this.props.onLineNumberClick(id, e);
+		}
+		return (): void => {};
+	};
+
+	/**
+	 * Maps over the word diff and constructs the required React elements to show word diff.
+	 *
+	 * @param diffArray Word diff information derived from line information.
+	 * @param renderer Optional renderer to format diff words. Useful for syntax highlighting.
+	 */
+	private renderWordDiff = (
+		diffArray: DiffInformation[],
+		renderer?: (chunk: string) => JSX.Element,
+	): JSX.Element[] => {
+		return diffArray.map(
+			(wordDiff, i): JSX.Element => {
+				return (
+					<span
+						key={i}
+						className={cn(this.styles.wordDiff, {
+							[this.styles.wordAdded]: wordDiff.type === DiffType.ADDED,
+							[this.styles.wordRemoved]: wordDiff.type === DiffType.REMOVED,
+						})}>
+						{renderer ? renderer(wordDiff.value as string) : wordDiff.value}
+					</span>
+				);
+			},
+		);
+	};
+
+	/**
+	 * Maps over the line diff and constructs the required react elements to show line diff. It calls
+	 * renderWordDiff when encountering word diff. This takes care of both inline and split view line
+	 * renders.
+	 *
+	 * @param lineNumber Line number of the current line.
+	 * @param type Type of diff of the current line.
+	 * @param prefix Unique id to prefix with the line numbers.
+	 * @param value Content of the line. It can be a string or a word diff array.
+	 * @param additionalLineNumber Additional line number to be shown. Useful for rendering inline
+	 *  diff view. Right line number will be passed as additionalLineNumber.
+	 * @param additionalPrefix Similar to prefix but for additional line number.
+	 */
+	private renderLine = (
+		lineNumber: number,
+		type: DiffType,
+		prefix: LineNumberPrefix,
+		value: string | DiffInformation[],
+		additionalLineNumber?: number,
+		additionalPrefix?: LineNumberPrefix,
+	): JSX.Element => {
+		const lineNumberTemplate = `${prefix}-${lineNumber}`;
+		const additionalLineNumberTemplate = `${additionalPrefix}-${additionalLineNumber}`;
+		const highlightLine =
+			this.props.highlightLines.includes(lineNumberTemplate) ||
+			this.props.highlightLines.includes(additionalLineNumberTemplate);
+		const added = type === DiffType.ADDED;
+		const removed = type === DiffType.REMOVED;
+		let content;
+		if (Array.isArray(value)) {
+			content = this.renderWordDiff(value, this.props.renderContent);
+		} else if (this.props.renderContent) {
+			content = this.props.renderContent(value);
+		} else {
+			content = value;
+		}
+
+		return (
+			<React.Fragment>
+				{!this.props.hideLineNumbers && (
+					<td
+						onClick={
+							lineNumber && this.onLineNumberClickProxy(lineNumberTemplate)
+						}
+						className={cn(this.styles.gutter, {
+							[this.styles.emptyGutter]: !lineNumber,
+							[this.styles.diffAdded]: added,
+							[this.styles.diffRemoved]: removed,
+							[this.styles.highlightedGutter]: highlightLine,
+						})}>
+						<pre className={this.styles.lineNumber}>{lineNumber}</pre>
+					</td>
+				)}
+				{!this.props.splitView && !this.props.hideLineNumbers && (
+					<td
+						onClick={
+							additionalLineNumber &&
+							this.onLineNumberClickProxy(additionalLineNumberTemplate)
+						}
+						className={cn(this.styles.gutter, {
+							[this.styles.emptyGutter]: !additionalLineNumber,
+							[this.styles.diffAdded]: added,
+							[this.styles.diffRemoved]: removed,
+							[this.styles.highlightedGutter]: highlightLine,
+						})}>
+						<pre className={this.styles.lineNumber}>{additionalLineNumber}</pre>
+					</td>
+				)}
+				<td
+					className={cn(this.styles.marker, {
+						[this.styles.emptyLine]: !content,
+						[this.styles.diffAdded]: added,
+						[this.styles.diffRemoved]: removed,
+						[this.styles.highlightedLine]: highlightLine,
+					})}>
+					<pre>
+						{added && '+'}
+						{removed && '-'}
+					</pre>
+				</td>
+				<td
+					className={cn(this.styles.content, {
+						[this.styles.emptyLine]: !content,
+						[this.styles.diffAdded]: added,
+						[this.styles.diffRemoved]: removed,
+						[this.styles.highlightedLine]: highlightLine,
+					})}>
+					<pre className={this.styles.contentText}>{content}</pre>
+				</td>
+			</React.Fragment>
+		);
+	};
+
+	/**
+	 * Generates lines for split view.
+	 *
+	 * @param obj Line diff information.
+	 * @param obj.left Life diff information for the left pane of the split view.
+	 * @param obj.right Life diff information for the right pane of the split view.
+	 * @param index React key for the lines.
+	 */
+	private renderSplitView = (
+		{ left, right }: LineInformation,
+		index: number,
+		actualRenderedIndex?: number,
+		totalLines?: number,
+	): JSX.Element => {
+		const { commentRow, commentRowLineNumber, commentRowEndLineNumber, showDiffOnly } = this.props;
+		// 并排模式：如果指定了开始行和结束行，评论框显示在中间位置；否则显示在指定行
+		// commentRowLineNumber 和 commentRowEndLineNumber 对应的是 lineInformation 数组的索引（index），而不是实际渲染的行索引
+		let shouldShowComment = false;
+		let isInCommentRange = false;
+		let commentRangeRowSpan = 0;
+		let isStartOfCommentRange = false;
+		
+		if (commentRow && commentRowLineNumber !== undefined) {
+			if (commentRowEndLineNumber !== undefined) {
+				// 有开始行和结束行：计算中间位置（基于 lineInformation 数组的索引）
+				const middleIndex = Math.floor((commentRowLineNumber + commentRowEndLineNumber) / 2);
+				// 使用 index 来匹配，因为 commentRowLineNumber 对应的是 lineInformation 数组的索引
+				shouldShowComment = index === middleIndex;
+				// 判断当前行是否在开始行和结束行之间
+				isInCommentRange = index >= commentRowLineNumber && index <= commentRowEndLineNumber;
+				// 判断是否是开始行
+				isStartOfCommentRange = index === commentRowLineNumber;
+				// 计算 rowSpan：从开始行到结束行的行数
+				commentRangeRowSpan = commentRowEndLineNumber - commentRowLineNumber + 1;
+			} else {
+				// 只有开始行：显示在开始行
+				shouldShowComment = showDiffOnly 
+					? actualRenderedIndex === commentRowLineNumber 
+					: index === commentRowLineNumber;
+			}
+		}
+		
+		return (
+			<tr key={index} className={this.styles.line}>
+				{this.renderLine(
+					left.lineNumber,
+					left.type,
+					LineNumberPrefix.LEFT,
+					left.value,
+				)}
+				{this.renderLine(
+					right.lineNumber,
+					right.type,
+					LineNumberPrefix.RIGHT,
+					right.value,
+				)}
+				{/* 在中间行显示评论框，rowSpan 只覆盖从开始行到结束行的区域 */}
+				{shouldShowComment && commentRowEndLineNumber !== undefined && (
+					<td
+						key="comment"
+						style={{
+							verticalAlign: 'middle',
+							padding: 0,
+							border: '1px solid rgba(128, 128, 128, 0.2)',
+							width: '33.33%',
+							minWidth: '300px',
+							backgroundColor: 'transparent',
+							position: 'relative',
+						}}
+						rowSpan={commentRangeRowSpan}>
+						{commentRow}
+					</td>
+				)}
+				{/* 如果没有结束行，评论框覆盖整个表格 */}
+				{shouldShowComment && commentRowEndLineNumber === undefined && (
+					<td
+						key="comment"
+						style={{
+							verticalAlign: 'middle',
+							padding: 0,
+							border: '1px solid rgba(128, 128, 128, 0.2)',
+							width: '33.33%',
+							minWidth: '300px',
+							backgroundColor: 'transparent',
+							position: 'relative',
+						}}
+						rowSpan={totalLines || 10000}>
+						{commentRow}
+					</td>
+				)}
+				{/* 在开始行显示灰色背景区域，跨越从开始行到结束行的所有行 */}
+				{!shouldShowComment && isStartOfCommentRange && commentRowEndLineNumber !== undefined && (
+					<td
+						key="comment-bg"
+						style={{
+							verticalAlign: 'top',
+							padding: 0,
+							border: '1px solid rgba(128, 128, 128, 0.2)',
+							width: '33.33%',
+							minWidth: '300px',
+							backgroundColor: '#f5f5f5',
+							position: 'relative',
+						}}
+						rowSpan={commentRangeRowSpan}>
+					</td>
+				)}
+			</tr>
+		);
+	};
+
+	/**
+	 * Generates lines for inline view.
+	 *
+	 * @param obj Line diff information.
+	 * @param obj.left Life diff information for the added section of the inline view.
+	 * @param obj.right Life diff information for the removed section of the inline view.
+	 * @param index React key for the lines.
+	 */
+	public renderInlineView = (
+		{ left, right }: LineInformation,
+		index: number,
+	): JSX.Element => {
+		let content;
+		if (left.type === DiffType.REMOVED && right.type === DiffType.ADDED) {
+			return (
+				<React.Fragment key={index}>
+					<tr className={this.styles.line}>
+						{this.renderLine(
+							left.lineNumber,
+							left.type,
+							LineNumberPrefix.LEFT,
+							left.value,
+							null,
+						)}
+					</tr>
+					<tr className={this.styles.line}>
+						{this.renderLine(
+							null,
+							right.type,
+							LineNumberPrefix.RIGHT,
+							right.value,
+							right.lineNumber,
+						)}
+					</tr>
+				</React.Fragment>
+			);
+		}
+		if (left.type === DiffType.REMOVED) {
+			content = this.renderLine(
+				left.lineNumber,
+				left.type,
+				LineNumberPrefix.LEFT,
+				left.value,
+				null,
+			);
+		}
+		if (left.type === DiffType.DEFAULT) {
+			content = this.renderLine(
+				left.lineNumber,
+				left.type,
+				LineNumberPrefix.LEFT,
+				left.value,
+				right.lineNumber,
+				LineNumberPrefix.RIGHT,
+			);
+		}
+		if (right.type === DiffType.ADDED) {
+			content = this.renderLine(
+				null,
+				right.type,
+				LineNumberPrefix.RIGHT,
+				right.value,
+				right.lineNumber,
+			);
+		}
+
+		return (
+			<tr key={index} className={this.styles.line}>
+				{content}
+			</tr>
+		);
+	};
+
+	/**
+	 * Returns a function with clicked block number in the closure.
+	 *
+	 * @param id Cold fold block id.
+	 */
+	private onBlockClickProxy = (id: number): any => (): void =>
+		this.onBlockExpand(id);
+
+	/**
+	 * Generates cold fold block. It also uses the custom message renderer when available to show
+	 * cold fold messages.
+	 *
+	 * @param num Number of skipped lines between two blocks.
+	 * @param blockNumber Code fold block id.
+	 * @param leftBlockLineNumber First left line number after the current code fold block.
+	 * @param rightBlockLineNumber First right line number after the current code fold block.
+	 */
+	private renderSkippedLineIndicator = (
+		num: number,
+		blockNumber: number,
+		leftBlockLineNumber: number,
+		rightBlockLineNumber: number,
+	): JSX.Element => {
+		const { hideLineNumbers, splitView } = this.props;
+		const message = this.props.codeFoldMessageRenderer ? (
+			this.props.codeFoldMessageRenderer(
+				num,
+				leftBlockLineNumber,
+				rightBlockLineNumber,
+			)
+		) : (
+			<pre className={this.styles.codeFoldContent}>Expand {num} lines ...</pre>
+		);
+		const content = (
+			<td>
+				<a onClick={this.onBlockClickProxy(blockNumber)} tabIndex={0}>
+					{message}
+				</a>
+			</td>
+		);
+		const isUnifiedViewWithoutLineNumbers = !splitView && !hideLineNumbers;
+		return (
+			<tr
+				key={`${leftBlockLineNumber}-${rightBlockLineNumber}`}
+				className={this.styles.codeFold}>
+				{!hideLineNumbers && <td className={this.styles.codeFoldGutter} />}
+				<td
+					className={cn({
+						[this.styles.codeFoldGutter]: isUnifiedViewWithoutLineNumbers,
+					})}
+				/>
+
+				{/* Swap columns only for unified view without line numbers */}
+				{isUnifiedViewWithoutLineNumbers ? (
+					<React.Fragment>
+						<td />
+						{content}
+					</React.Fragment>
+				) : (
+					<React.Fragment>
+						{content}
+						<td />
+					</React.Fragment>
+				)}
+
+				<td />
+				<td />
+			</tr>
+		);
+	};
+
+	/**
+	 * Generates the entire diff view.
+	 */
+	private renderDiff = (): JSX.Element[] => {
+		const {
+			oldValue,
+			newValue,
+			splitView,
+			disableWordDiff,
+			compareMethod,
+			linesOffset,
+			commentRow,
+			commentRowLineNumber,
+			commentRowEndLineNumber,
+		} = this.props;
+		const { lineInformation, diffLines } = computeLineInformation(
+			oldValue,
+			newValue,
+			disableWordDiff,
+			compareMethod,
+			linesOffset,
+		);
+		const extraLines =
+			this.props.extraLinesSurroundingDiff < 0
+				? 0
+				: this.props.extraLinesSurroundingDiff;
+		let skippedLines: number[] = [];
+		const result: (JSX.Element | null)[] = [];
+		// 跟踪实际渲染的行索引（用于并排模式的 commentRowLineNumber 匹配）
+		let actualRenderedIndex = 0;
+		
+		lineInformation.forEach(
+			(line: LineInformation, i: number): void => {
+				const diffBlockStart = diffLines[0];
+				const currentPosition = diffBlockStart - i;
+				if (this.props.showDiffOnly) {
+					if (currentPosition === -extraLines) {
+						skippedLines = [];
+						diffLines.shift();
+					}
+					if (
+						line.left.type === DiffType.DEFAULT &&
+						(currentPosition > extraLines ||
+							typeof diffBlockStart === 'undefined') &&
+						!this.state.expandedBlocks.includes(diffBlockStart)
+					) {
+						skippedLines.push(i + 1);
+						if (i === lineInformation.length - 1 && skippedLines.length > 1) {
+							actualRenderedIndex++;
+							result.push(this.renderSkippedLineIndicator(
+								skippedLines.length,
+								diffBlockStart,
+								line.left.lineNumber,
+								line.right.lineNumber,
+							));
+						} else {
+							result.push(null);
+						}
+						return;
+					}
+				}
+
+				// 只有实际渲染的行才增加 actualRenderedIndex
+				// 注意：actualRenderedIndex 在调用 renderSplitView 之前就已经是当前行的索引
+				const diffNodes = splitView
+					? this.renderSplitView(line, i, actualRenderedIndex, lineInformation.length)
+					: this.renderInlineView(line, i);
+				
+				// 渲染完当前行后，增加 actualRenderedIndex
+				actualRenderedIndex++;
+
+				if (currentPosition === extraLines && skippedLines.length > 0) {
+					const { length } = skippedLines;
+					skippedLines = [];
+					result.push(
+						<React.Fragment key={i}>
+							{this.renderSkippedLineIndicator(
+								length,
+								diffBlockStart,
+								line.left.lineNumber,
+								line.right.lineNumber,
+							)}
+							{diffNodes}
+						</React.Fragment>
+					);
+				} else {
+					result.push(diffNodes);
+				}
+
+				// 在行内模式下，在指定行之后插入评论框
+				if (!splitView && commentRow && commentRowLineNumber !== undefined && i === commentRowLineNumber) {
+					const colSpanOnInlineView = this.props.hideLineNumbers ? 2 : 4;
+					result.push(
+						<tr key={`comment-${i}`}>
+							<td
+								colSpan={colSpanOnInlineView}
+								style={{
+									padding: 0,
+									border: 'none',
+									verticalAlign: 'top',
+								}}>
+								{commentRow}
+							</td>
+						</tr>
+					);
+				}
+			},
+		);
+		
+		return result.filter((node): node is JSX.Element => node !== null);
+	};
+
+	public render = (): JSX.Element => {
+		const {
+			oldValue,
+			newValue,
+			useDarkTheme,
+			leftTitle,
+			rightTitle,
+			splitView,
+			hideLineNumbers,
+			commentRow,
+			commentRowLineNumber,
+		} = this.props;
+
+		if (typeof oldValue !== 'string' || typeof newValue !== 'string') {
+			throw Error('"oldValue" and "newValue" should be strings');
+		}
+
+		this.styles = this.computeStyles(this.props.styles, useDarkTheme);
+		const nodes = this.renderDiff();
+		const colSpanOnSplitView = hideLineNumbers ? 2 : 3;
+		const colSpanOnInlineView = hideLineNumbers ? 2 : 4;
+
+		const title = (leftTitle || rightTitle) && (
+			<tr>
+				<td
+					colSpan={splitView ? colSpanOnSplitView : colSpanOnInlineView}
+					className={this.styles.titleBlock}>
+					<pre className={this.styles.contentText}>{leftTitle}</pre>
+				</td>
+				{splitView && (
+					<>
+						<td colSpan={colSpanOnSplitView} className={this.styles.titleBlock}>
+							<pre className={this.styles.contentText}>{rightTitle}</pre>
+						</td>
+						{commentRow && (
+							<td className={this.styles.titleBlock} style={{ width: '33.33%', minWidth: '300px' }}>
+								<pre className={this.styles.contentText}>Comments</pre>
+							</td>
+						)}
+					</>
+				)}
+			</tr>
+		);
+
+		// 行内模式下，如果 commentRowLineNumber 未指定，则在最后显示评论框
+		const commentRowElement = !splitView && commentRow && commentRowLineNumber === undefined && (
+			<tr>
+				<td
+					colSpan={colSpanOnInlineView}
+					style={{
+						padding: 0,
+						border: 'none',
+						verticalAlign: 'top',
+					}}>
+					{commentRow}
+				</td>
+			</tr>
+		);
+
+		return (
+			<table
+				className={cn(this.styles.diffContainer, {
+					[this.styles.splitView]: splitView,
+				})}>
+				<tbody>
+					{title}
+					{nodes}
+					{commentRowElement}
+				</tbody>
+			</table>
+		);
+	};
+}
+
+export default DiffViewer;
+export { ReactDiffViewerStylesOverride, DiffMethod };
