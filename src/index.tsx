@@ -70,6 +70,8 @@ export interface ReactDiffViewerProps {
 	commentRow?: JSX.Element;
 	// Line number after which to display the comment box (0-based index in lineInformation array, or actual rendered line index if showDiffOnly is true)
 	commentRowLineNumber?: number;
+	// End line number for comment box range (0-based index in lineInformation array, or actual rendered line index if showDiffOnly is true)
+	commentRowEndLineNumber?: number;
 }
 
 export interface ReactDiffViewerState {
@@ -308,15 +310,33 @@ class DiffViewer extends React.Component<
 		actualRenderedIndex?: number,
 		totalLines?: number,
 	): JSX.Element => {
-		const { commentRow, commentRowLineNumber, showDiffOnly } = this.props;
-		// 并排模式：在指定行显示评论框
-		// commentRowLineNumber 对应的是 lineInformation 数组的索引（index），而不是实际渲染的行索引
+		const { commentRow, commentRowLineNumber, commentRowEndLineNumber, showDiffOnly } = this.props;
+		// 并排模式：如果指定了开始行和结束行，评论框显示在中间位置；否则显示在指定行
+		// commentRowLineNumber 和 commentRowEndLineNumber 对应的是 lineInformation 数组的索引（index），而不是实际渲染的行索引
 		let shouldShowComment = false;
+		let isInCommentRange = false;
+		let commentRangeRowSpan = 0;
+		let isStartOfCommentRange = false;
 		
 		if (commentRow && commentRowLineNumber !== undefined) {
-			shouldShowComment = showDiffOnly 
-				? actualRenderedIndex === commentRowLineNumber 
-				: index === commentRowLineNumber;
+			if (commentRowEndLineNumber !== undefined) {
+				// 有开始行和结束行：在开始行显示评论框，rowSpan 覆盖整个区间
+				// 使用 index 来匹配，因为 commentRowLineNumber 对应的是 lineInformation 数组的索引
+				shouldShowComment = showDiffOnly 
+					? actualRenderedIndex === commentRowLineNumber 
+					: index === commentRowLineNumber;
+				// 判断当前行是否在开始行和结束行之间
+				isInCommentRange = index >= commentRowLineNumber && index <= commentRowEndLineNumber;
+				// 判断是否是开始行
+				isStartOfCommentRange = index === commentRowLineNumber;
+				// 计算 rowSpan：从开始行到结束行的行数
+				commentRangeRowSpan = commentRowEndLineNumber - commentRowLineNumber + 1;
+			} else {
+				// 只有开始行：显示在开始行
+				shouldShowComment = showDiffOnly 
+					? actualRenderedIndex === commentRowLineNumber 
+					: index === commentRowLineNumber;
+			}
 		}
 		
 		return (
@@ -333,8 +353,8 @@ class DiffViewer extends React.Component<
 					LineNumberPrefix.RIGHT,
 					right.value,
 				)}
-				{/* 在指定行显示评论框，覆盖从该行到表格末尾的所有行 */}
-				{shouldShowComment && (
+				{/* 在开始行显示评论框，rowSpan 覆盖从开始行到结束行的整个区域 */}
+				{shouldShowComment && commentRowEndLineNumber !== undefined && (
 					<td
 						key="comment"
 						style={{
@@ -346,8 +366,41 @@ class DiffViewer extends React.Component<
 							backgroundColor: 'transparent',
 							position: 'relative',
 						}}
-						rowSpan={totalLines ? totalLines - index : 10000}>
+						rowSpan={commentRangeRowSpan}>
 						{commentRow}
+					</td>
+				)}
+				{/* 如果没有结束行，评论框覆盖整个表格 */}
+				{shouldShowComment && commentRowEndLineNumber === undefined && (
+					<td
+						key="comment"
+						style={{
+							verticalAlign: 'middle',
+							padding: 0,
+							border: '1px solid rgba(128, 128, 128, 0.2)',
+							width: '33.33%',
+							minWidth: '300px',
+							backgroundColor: 'transparent',
+							position: 'relative',
+						}}
+						rowSpan={totalLines || 10000}>
+						{commentRow}
+					</td>
+				)}
+				{/* 在开始行显示灰色背景区域，跨越从开始行到结束行的所有行 */}
+				{!shouldShowComment && isStartOfCommentRange && commentRowEndLineNumber !== undefined && (
+					<td
+						key="comment-bg"
+						style={{
+							verticalAlign: 'top',
+							padding: 0,
+							border: '1px solid rgba(128, 128, 128, 0.2)',
+							width: '33.33%',
+							minWidth: '300px',
+							backgroundColor: '#f5f5f5',
+							position: 'relative',
+						}}
+						rowSpan={commentRangeRowSpan}>
 					</td>
 				)}
 			</tr>
@@ -511,6 +564,7 @@ class DiffViewer extends React.Component<
 			linesOffset,
 			commentRow,
 			commentRowLineNumber,
+			commentRowEndLineNumber,
 		} = this.props;
 		const { lineInformation, diffLines } = computeLineInformation(
 			oldValue,

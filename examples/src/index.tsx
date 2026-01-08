@@ -226,7 +226,8 @@ class Example extends React.Component<{}, ExampleState> {
                 />
               </div>
             )}
-            commentRowLineNumber={4}
+            commentRowLineNumber={0}
+            commentRowEndLineNumber={29}
           />
         </div>
         <footer>
