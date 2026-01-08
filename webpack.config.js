@@ -9,6 +9,8 @@ module.exports = {
   },
   mode: process.env.NODE_ENV === 'production' ?
     'production' : 'development',
+  // 禁用 webpack 缓存
+  cache: false,
   // 添加 source maps 支持调试
   devtool: process.env.NODE_ENV === 'production' ? 'source-map' : 'eval-source-map',
   resolve: {
@@ -30,6 +32,8 @@ module.exports = {
           loader: 'ts-loader',
           options: {
             configFile: 'tsconfig.examples.json',
+            transpileOnly: true, // 启用类型检查
+            experimentalWatchApi: true, // 使用实验性 watch API
           },
         }],
         exclude: /node_modules/,
