@@ -19,6 +19,7 @@ interface ExampleState {
   showCommentBox?: boolean;
   comments?: Comment[];
   useDarkThemeComment?: boolean;
+  useDarkTheme?: boolean;
 }
 
 const P = (window as any).Prism;
@@ -32,6 +33,7 @@ class Example extends React.Component<{}, ExampleState> {
       enableSyntaxHighlighting: true,
       showCommentBox: true,
       useDarkThemeComment: false,
+      useDarkTheme: true,
       comments: [
         {
           id: '1',
@@ -40,24 +42,8 @@ class Example extends React.Component<{}, ExampleState> {
           role: 'Maintainer',
           content: 'main/module/exports 指向 src/*.ts 源文件,非 TS-aware 环境或外部项目可能无法直接消费。建议指向构建产物 (dist/index.cjs、dist/index.esm.js), 子路径 exports 也应对齐构建输出。',
           timestamp: new Date(Date.now() - 3 * 60 * 60 * 1000), // 3 hours ago
-          replies: [
-            {
-              id: '1-1',
-              author: 'Developer',
-              handle: 'dev',
-              content: '我也觉得很好用！',
-              timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000), // 2 hours ago
-            },
-          ],
-        },
-        {
-          id: '2',
-          author: 'CodeReviewer',
-          handle: 'reviewer',
-          content: '请问这个组件支持自定义样式吗？',
-          timestamp: new Date(Date.now() - 1 * 60 * 60 * 1000), // 1 hour ago
           replies: [],
-        },
+        }
       ],
     };
   }
@@ -108,6 +94,12 @@ class Example extends React.Component<{}, ExampleState> {
   private toggleCommentTheme = (): void => {
     this.setState({
       useDarkThemeComment: !this.state.useDarkThemeComment,
+    });
+  };
+
+  private toggleTheme = (): void => {
+    this.setState({
+      useDarkTheme: !this.state.useDarkTheme,
     });
   };
 
@@ -194,6 +186,23 @@ class Example extends React.Component<{}, ExampleState> {
             >
               {this.state.splitView ? '切换到行内模式' : '切换到并排模式'}
             </button>
+            <button
+              type="button"
+              onClick={this.toggleTheme}
+              style={{
+                padding: '8px 16px',
+                fontSize: '14px',
+                backgroundColor: this.state.useDarkTheme ? '#2e303c' : '#f7f7f7',
+                color: this.state.useDarkTheme ? 'white' : '#212529',
+                border: '1px solid #d0d7de',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontWeight: 'bold',
+                marginRight: '10px',
+              }}
+            >
+              {this.state.useDarkTheme ? '切换到白色模式' : '切换到暗黑模式'}
+            </button>
           </div>
           <ReactDiff
             highlightLines={this.state.highlightLine}
@@ -202,22 +211,21 @@ class Example extends React.Component<{}, ExampleState> {
             splitView={this.state.splitView}
             newValue={newJs}
             renderContent={this.syntaxHighlight}
-            useDarkTheme
+            useDarkTheme={this.state.useDarkTheme}
             showDiffOnly={false}
             leftTitle="webpack.config.js master@2178133 - pushed 2 hours ago."
             rightTitle="webpack.config.js master@64207ee - pushed 13 hours ago."
             commentRow={(
               <div style={{ 
-                padding: '20px',
-                background: this.state.useDarkThemeComment ? '#1e1e1e' : '#f8f9fa',
-                minHeight: '500px',
-                height: '100%',
+                padding: '10px',
+                background: 'transparent',
                 overflow: 'auto',
                 boxSizing: 'border-box',
                 display: 'flex',
                 flexDirection: 'column',
                 justifyContent: 'flex-start',
                 alignItems: 'stretch',
+                width: '100%',
               }}>
                 <CommentBox
                   comments={this.state.comments || []}

@@ -66,7 +66,7 @@ export default (
 
 	const themeVariables = {
 		light: {
-			containerBackground: '#fff',
+			containerBackground: 'transparent',
 			containerColor: '#212529',
 			commentItemBackground: '#f6f8fa',
 			commentItemBorder: '#d0d7de',
@@ -85,7 +85,7 @@ export default (
 			...(overrideVariables.light || {}),
 		},
 		dark: {
-			containerBackground: '#2e303c',
+			containerBackground: 'transparent',
 			containerColor: '#fff',
 			commentItemBackground: '#363946',
 			commentItemBorder: '#464c67',
@@ -111,17 +111,20 @@ export default (
 		width: '100%',
 		background: variables.containerBackground,
 		color: variables.containerColor,
-		padding: '24px',
-		borderRadius: '8px',
+		padding: '0px',
+		borderRadius: 0,
 		label: 'comment-box-container',
 	});
 
 	const commentItem = css({
 		background: variables.commentItemBackground,
-		border: `1px solid ${variables.commentItemBorder}`,
+		borderTop: `1px solid ${variables.commentItemBorder}`,
+		borderRight: `1px solid ${variables.commentItemBorder}`,
+		borderBottom: `1px solid ${variables.commentItemBorder}`,
+		borderLeft: '2px solid #0066cc',
 		borderRadius: '8px',
-		padding: '16px',
-		marginBottom: '12px',
+		padding: '8px',
+		marginBottom: '4px',
 		label: 'comment-item',
 		'&:last-child': {
 			marginBottom: 0,

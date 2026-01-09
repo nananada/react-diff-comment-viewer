@@ -223,6 +223,7 @@ class DiffViewer extends React.Component<
 		value: string | DiffInformation[],
 		additionalLineNumber?: number,
 		additionalPrefix?: LineNumberPrefix,
+		isInCommentRange?: boolean,
 	): JSX.Element => {
 		const lineNumberTemplate = `${prefix}-${lineNumber}`;
 		const additionalLineNumberTemplate = `${additionalPrefix}-${additionalLineNumber}`;
@@ -240,6 +241,21 @@ class DiffViewer extends React.Component<
 			content = value;
 		}
 
+		// 如果当前行在评论范围内，且不是添加或删除的行，行号背景使用淡蓝色
+		// 添加和删除的行号保持原来的绿色和红色背景
+		const lightBlue = this.props.useDarkTheme ? '#2d4a6b' : '#e6f3ff';
+		const darkerLightBlue = this.props.useDarkTheme ? '#1e4a6b' : '#cce5ff';
+		
+		// 如果当前单元格是空单元格且在评论范围内，行号背景使用稍微深一点的淡蓝色
+		// 如果当前单元格不是空单元格且在评论范围内，行号背景使用淡蓝色
+		// 添加和删除的行号保持原来的绿色和红色背景
+		const gutterStyle = (isInCommentRange && !added && !removed) 
+			? { backgroundColor: !content ? darkerLightBlue : lightBlue } 
+			: {};
+		
+		// 如果当前行在评论范围内，且是空单元格（删除行的右侧或添加行的左侧），显示稍微深一点的淡蓝色背景
+		const emptyCellStyle = (isInCommentRange && !content) ? { backgroundColor: darkerLightBlue } : {};
+
 		return (
 			<React.Fragment>
 				{!this.props.hideLineNumbers && (
@@ -252,7 +268,8 @@ class DiffViewer extends React.Component<
 							[this.styles.diffAdded]: added,
 							[this.styles.diffRemoved]: removed,
 							[this.styles.highlightedGutter]: highlightLine,
-						})}>
+						})}
+						style={gutterStyle}>
 						<pre className={this.styles.lineNumber}>{lineNumber}</pre>
 					</td>
 				)}
@@ -267,7 +284,8 @@ class DiffViewer extends React.Component<
 							[this.styles.diffAdded]: added,
 							[this.styles.diffRemoved]: removed,
 							[this.styles.highlightedGutter]: highlightLine,
-						})}>
+						})}
+						style={gutterStyle}>
 						<pre className={this.styles.lineNumber}>{additionalLineNumber}</pre>
 					</td>
 				)}
@@ -277,7 +295,8 @@ class DiffViewer extends React.Component<
 						[this.styles.diffAdded]: added,
 						[this.styles.diffRemoved]: removed,
 						[this.styles.highlightedLine]: highlightLine,
-					})}>
+					})}
+					style={emptyCellStyle}>
 					<pre>
 						{added && '+'}
 						{removed && '-'}
@@ -289,7 +308,12 @@ class DiffViewer extends React.Component<
 						[this.styles.diffAdded]: added,
 						[this.styles.diffRemoved]: removed,
 						[this.styles.highlightedLine]: highlightLine,
-					})}>
+					})}
+					style={{
+						...emptyCellStyle,
+						...(this.props.splitView && prefix === LineNumberPrefix.LEFT ? { borderRight: '1px solid #d0d7de' } : {}),
+						...(this.props.splitView && prefix === LineNumberPrefix.RIGHT && this.props.commentRow ? { borderRight: '1px solid #d0d7de' } : {}),
+					}}>
 					<pre className={this.styles.contentText}>{content}</pre>
 				</td>
 			</React.Fragment>
@@ -326,7 +350,9 @@ class DiffViewer extends React.Component<
 					? actualRenderedIndex === commentRowLineNumber 
 					: index === commentRowLineNumber;
 				// 判断当前行是否在开始行和结束行之间
-				isInCommentRange = index >= commentRowLineNumber && index <= commentRowEndLineNumber;
+				isInCommentRange = showDiffOnly
+					? (actualRenderedIndex !== undefined && actualRenderedIndex >= commentRowLineNumber && actualRenderedIndex <= commentRowEndLineNumber)
+					: (index >= commentRowLineNumber && index <= commentRowEndLineNumber);
 				// 判断是否是开始行
 				isStartOfCommentRange = index === commentRowLineNumber;
 				// 计算 rowSpan：从开始行到结束行的行数
@@ -336,22 +362,39 @@ class DiffViewer extends React.Component<
 				shouldShowComment = showDiffOnly 
 					? actualRenderedIndex === commentRowLineNumber 
 					: index === commentRowLineNumber;
+				// 判断当前行是否在开始行
+				isInCommentRange = showDiffOnly
+					? (actualRenderedIndex !== undefined && actualRenderedIndex === commentRowLineNumber)
+					: (index === commentRowLineNumber);
 			}
 		}
 		
+		// 如果当前行在评论范围内，且不是删除或添加的行，添加淡蓝色背景
+		// 删除和添加的行保持原来的红色和绿色背景，但空单元格会单独处理显示淡蓝色
+		const lightBlue = this.props.useDarkTheme ? '#2d4a6b' : '#e6f3ff';
+		const rowStyle = (isInCommentRange && left.type !== DiffType.REMOVED && right.type !== DiffType.ADDED) 
+			? { backgroundColor: lightBlue } 
+			: {};
+		
 		return (
-			<tr key={index} className={this.styles.line}>
+			<tr key={index} className={this.styles.line} style={rowStyle}>
 				{this.renderLine(
 					left.lineNumber,
 					left.type,
 					LineNumberPrefix.LEFT,
 					left.value,
+					undefined,
+					undefined,
+					isInCommentRange,
 				)}
 				{this.renderLine(
 					right.lineNumber,
 					right.type,
 					LineNumberPrefix.RIGHT,
 					right.value,
+					undefined,
+					undefined,
+					isInCommentRange,
 				)}
 				{/* 在开始行显示评论框，rowSpan 覆盖从开始行到结束行的整个区域 */}
 				{shouldShowComment && commentRowEndLineNumber !== undefined && (
@@ -361,6 +404,7 @@ class DiffViewer extends React.Component<
 							verticalAlign: 'middle',
 							padding: 0,
 							border: '1px solid rgba(128, 128, 128, 0.2)',
+							borderLeft: '1px solid #d0d7de',
 							width: '33.33%',
 							minWidth: '300px',
 							backgroundColor: 'transparent',
@@ -375,9 +419,10 @@ class DiffViewer extends React.Component<
 					<td
 						key="comment"
 						style={{
-							verticalAlign: 'middle',
+							verticalAlign: 'top',
 							padding: 0,
 							border: '1px solid rgba(128, 128, 128, 0.2)',
+							borderLeft: '1px solid #d0d7de',
 							width: '33.33%',
 							minWidth: '300px',
 							backgroundColor: 'transparent',
@@ -395,6 +440,7 @@ class DiffViewer extends React.Component<
 							verticalAlign: 'top',
 							padding: 0,
 							border: '1px solid rgba(128, 128, 128, 0.2)',
+							borderLeft: '1px solid #d0d7de',
 							width: '33.33%',
 							minWidth: '300px',
 							backgroundColor: '#f5f5f5',
@@ -419,7 +465,20 @@ class DiffViewer extends React.Component<
 		{ left, right }: LineInformation,
 		index: number,
 	): JSX.Element => {
+		const { commentRowLineNumber, commentRowEndLineNumber } = this.props;
+		// 判断当前行是否在评论范围内
+		let isInCommentRange = false;
+		if (commentRowLineNumber !== undefined) {
+			if (commentRowEndLineNumber !== undefined) {
+				isInCommentRange = index >= commentRowLineNumber && index <= commentRowEndLineNumber;
+			} else {
+				isInCommentRange = index === commentRowLineNumber;
+			}
+		}
+		
 		let content;
+		// 行内模式不显示淡蓝色效果，将 isInCommentRange 设置为 false
+		const isInCommentRangeForInline = false;
 		if (left.type === DiffType.REMOVED && right.type === DiffType.ADDED) {
 			return (
 				<React.Fragment key={index}>
@@ -430,6 +489,8 @@ class DiffViewer extends React.Component<
 							LineNumberPrefix.LEFT,
 							left.value,
 							null,
+							undefined,
+							isInCommentRangeForInline,
 						)}
 					</tr>
 					<tr className={this.styles.line}>
@@ -439,6 +500,8 @@ class DiffViewer extends React.Component<
 							LineNumberPrefix.RIGHT,
 							right.value,
 							right.lineNumber,
+							undefined,
+							isInCommentRangeForInline,
 						)}
 					</tr>
 				</React.Fragment>
@@ -451,6 +514,8 @@ class DiffViewer extends React.Component<
 				LineNumberPrefix.LEFT,
 				left.value,
 				null,
+				undefined,
+				isInCommentRangeForInline,
 			);
 		}
 		if (left.type === DiffType.DEFAULT) {
@@ -461,6 +526,7 @@ class DiffViewer extends React.Component<
 				left.value,
 				right.lineNumber,
 				LineNumberPrefix.RIGHT,
+				isInCommentRangeForInline,
 			);
 		}
 		if (right.type === DiffType.ADDED) {
@@ -470,6 +536,8 @@ class DiffViewer extends React.Component<
 				LineNumberPrefix.RIGHT,
 				right.value,
 				right.lineNumber,
+				undefined,
+				isInCommentRangeForInline,
 			);
 		}
 
@@ -689,16 +757,26 @@ class DiffViewer extends React.Component<
 			<tr>
 				<td
 					colSpan={splitView ? colSpanOnSplitView : colSpanOnInlineView}
-					className={this.styles.titleBlock}>
+					className={this.styles.titleBlock}
+					style={splitView ? { borderRight: '1px solid #d0d7de' } : {}}>
 					<pre className={this.styles.contentText}>{leftTitle}</pre>
 				</td>
 				{splitView && (
 					<>
-						<td colSpan={colSpanOnSplitView} className={this.styles.titleBlock}>
+						<td 
+							colSpan={colSpanOnSplitView} 
+							className={this.styles.titleBlock}
+							style={{ borderRight: '1px solid #d0d7de' }}>
 							<pre className={this.styles.contentText}>{rightTitle}</pre>
 						</td>
 						{commentRow && (
-							<td className={this.styles.titleBlock} style={{ width: '33.33%', minWidth: '300px' }}>
+							<td 
+								className={this.styles.titleBlock} 
+								style={{ 
+									width: '33.33%', 
+									minWidth: '300px',
+									borderLeft: '1px solid #d0d7de',
+								}}>
 								<pre className={this.styles.contentText}>Comments</pre>
 							</td>
 						)}
