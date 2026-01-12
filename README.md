@@ -10,25 +10,27 @@
 
 A simple and beautiful text diff viewer component made with [Diff](https://github.com/kpdecker/jsdiff) and [React](https://reactjs.org).
 
-Inspired from Github diff viewer, it includes features like split view, inline view, word diff, line highlight and more. It is highly customizable and it supports almost all languages.
+Inspired from Github diff viewer, it includes features like split view, inline view, word diff, line highlight, comment box and more. It is highly customizable and it supports almost all languages.
 
 Check [here](https://github.com/praneshr/react-diff-viewer/tree/v2.0) for v2.0
 
 ## Install
 
 ```bash
-yarn add react-diff-viewer
+yarn add react-diff-comment-viewer
 
 # or
 
-npm i react-diff-viewer
+npm i react-diff-comment-viewer
 ```
 
 ## Usage
 
+### Basic Usage
+
 ```javascript
 import React, { PureComponent } from 'react';
-import ReactDiffViewer from 'react-diff-viewer';
+import ReactDiffViewer from 'react-diff-comment-viewer';
 
 const oldCode = `
 const a = 10
@@ -59,6 +61,66 @@ class Diff extends PureComponent {
 }
 ```
 
+### With Comment Box
+
+```javascript
+import React, { PureComponent } from 'react';
+import ReactDiffViewer from 'react-diff-comment-viewer';
+import CommentBox from 'react-diff-comment-viewer/CommentBox';
+
+const oldCode = `const a = 10;`;
+const newCode = `const a = 20;`;
+
+const comments = [
+  {
+    id: '1',
+    author: 'John Doe',
+    handle: 'johndoe',
+    role: 'Reviewer',
+    content: 'This change looks good!',
+    timestamp: new Date(),
+    replies: []
+  }
+];
+
+class Diff extends PureComponent {
+  render = () => {
+    return (
+      <ReactDiffViewer
+        oldValue={oldCode}
+        newValue={newCode}
+        splitView={true}
+        useDarkTheme={false}
+        showDiffOnly={false}
+        leftTitle="Old File"
+        rightTitle="New File"
+        commentRow={
+          <div style={{ 
+            padding: '10px',
+            background: 'transparent',
+            overflow: 'auto',
+            boxSizing: 'border-box',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'flex-start',
+            alignItems: 'stretch',
+            width: '100%',
+          }}>
+            <CommentBox
+              comments={comments}
+              showAvatar={true}
+              useDarkTheme={false}
+            />
+          </div>
+        }
+        commentRowLineNumber={0}
+        commentRowEndLineNumber={10}
+      />
+    );
+  };
+}
+```
+
 ## Props
 
 | Prop                      | Type            | Default                        | Description                                                                                                                                                                                                                                                                                                                                                                                                      |
@@ -80,6 +142,9 @@ class Diff extends PureComponent {
 | leftTitle                 | `string`        | `undefined`                    | Column title for left section of the diff in split view. This will be used as the only title in inline view.                                                                                                                                                                                                                                                                                                     |
 | rightTitle                | `string`        | `undefined`                    | Column title for right section of the diff in split view. This will be ignored in inline view.                                                                                                                                                                                                                                                                                                                   |
 | linesOffset               | `number`        | `0`                            | Number to start count code lines from.                                                                                                                                                                                                                                                                                                                                                                           |
+| commentRow                | `JSX.Element`   | `undefined`                    | Comment box content to display alongside the diff. This will be shown in a separate column in split view mode. The comment box will span from `commentRowLineNumber` to `commentRowEndLineNumber`.                                                                                                                                                                                                              |
+| commentRowLineNumber      | `number`        | `undefined`                    | Starting line number (0-based index) where the comment box should be displayed. The comment box will start from this line.                                                                                                                                                                                                                                                                                       |
+| commentRowEndLineNumber   | `number`        | `undefined`                    | Ending line number (0-based index) where the comment box should end. The comment box will span from `commentRowLineNumber` to this line. If not provided, the comment box will span from the start line to the end of the diff.                                                                                                                                                                                 |
 
 ## Instance Methods
 
@@ -103,7 +168,7 @@ An example using [Prism JS](https://prismjs.com)
 
 ```javascript
 import React, { PureComponent } from 'react';
-import ReactDiffViewer from 'react-diff-viewer';
+import ReactDiffViewer from 'react-diff-comment-viewer';
 
 const oldCode = `
 const a = 10
@@ -166,7 +231,7 @@ enum DiffMethod {
 
 ```javascript
 import React, { PureComponent } from 'react';
-import ReactDiffViewer, { DiffMethod } from 'react-diff-viewer';
+import ReactDiffViewer, { DiffMethod } from 'react-diff-comment-viewer';
 
 const oldCode = `
 {
@@ -195,6 +260,135 @@ class Diff extends PureComponent {
   };
 }
 ```
+
+## Comment Box
+
+React Diff Viewer supports displaying comment boxes alongside the diff view. This is useful for code review scenarios where you want to add comments to specific lines of code.
+
+### CommentBox Component
+
+The `CommentBox` component is a built-in component for displaying comments. You can import it separately:
+
+```javascript
+import CommentBox from 'react-diff-comment-viewer/CommentBox';
+```
+
+### CommentBox Props
+
+| Prop          | Type                      | Default     | Description                                    |
+| ------------- | ------------------------- | ----------- | ---------------------------------------------- |
+| comments      | `Comment[]`              | `[]`        | Array of comment objects to display           |
+| showAvatar    | `boolean`                 | `true`      | Whether to show user avatars                   |
+| useDarkTheme  | `boolean`                 | `false`     | Whether to use dark theme                      |
+| styles        | `CommentBoxStylesOverride` | `{}`        | Style overrides for the comment box           |
+
+### Comment Interface
+
+```typescript
+interface Comment {
+  id: string;              // Unique identifier for the comment
+  author: string;          // Author name
+  handle?: string;         // Author handle/username
+  role?: string;           // Author role (e.g., "Reviewer", "Maintainer")
+  content: string;         // Comment content/text
+  timestamp: Date;         // Comment timestamp
+  avatar?: string;         // Avatar image URL
+  replies?: Comment[];     // Nested replies to this comment
+}
+```
+
+### Comment Box Usage Example
+
+```javascript
+import React, { PureComponent } from 'react';
+import ReactDiffViewer from 'react-diff-comment-viewer';
+import CommentBox from 'react-diff-comment-viewer/CommentBox';
+
+const oldCode = `
+function calculate(a, b) {
+  return a + b;
+}
+`;
+
+const newCode = `
+function calculate(a, b) {
+  return a * b;
+}
+`;
+
+const comments = [
+  {
+    id: '1',
+    author: 'Alice',
+    handle: 'alice',
+    role: 'Reviewer',
+    content: 'Please consider using multiplication instead of addition.',
+    timestamp: new Date(Date.now() - 3 * 60 * 60 * 1000), // 3 hours ago
+    replies: [
+      {
+        id: '2',
+        author: 'Bob',
+        handle: 'bob',
+        role: 'Author',
+        content: 'Good catch! Updated.',
+        timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000), // 2 hours ago
+        replies: []
+      }
+    ]
+  }
+];
+
+class DiffWithComments extends PureComponent {
+  render = () => {
+    return (
+      <ReactDiffViewer
+        oldValue={oldCode}
+        newValue={newCode}
+        splitView={true}
+        useDarkTheme={false}
+        showDiffOnly={false}
+        leftTitle="Old Code"
+        rightTitle="New Code"
+        commentRow={
+          <div style={{ 
+            padding: '10px',
+            background: 'transparent',
+            overflow: 'auto',
+            boxSizing: 'border-box',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'flex-start',
+            alignItems: 'stretch',
+            width: '100%',
+          }}>
+            <CommentBox
+              comments={comments}
+              showAvatar={true}
+              useDarkTheme={false}
+            />
+          </div>
+        }
+        commentRowLineNumber={0}
+        commentRowEndLineNumber={5}
+      />
+    );
+  };
+}
+```
+
+### Comment Box Features
+
+- **Line Range Support**: Comments can be displayed for a specific range of lines using `commentRowLineNumber` and `commentRowEndLineNumber`. Note that line numbers are **0-based** (start from 0).
+- **Nested Replies**: Comments support nested replies for threaded discussions
+- **Avatar Support**: Display user avatars with comments
+- **Dark Theme**: Support for both light and dark themes
+- **Customizable Styles**: Override styles using the `styles` prop
+- **Split View Only**: Comment boxes are currently only supported in split view mode
+- **Visual Highlighting**: Lines within the comment range are highlighted with a light blue background in split view mode
+
+### Comment Box Styling
+
+The comment box uses a blue left border (`#0066cc`) and gray borders for the other sides. You can customize the styling by passing a `styles` prop to the `CommentBox` component.
 
 ## Overriding Styles
 
@@ -290,7 +484,7 @@ For keys other than `variables`, the value can either be an object or string int
 
 ```javascript
 import React, { PureComponent } from 'react';
-import ReactDiffViewer from 'react-diff-viewer';
+import ReactDiffViewer from 'react-diff-comment-viewer';
 
 const oldCode = `
 const a = 10

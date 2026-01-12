@@ -111,7 +111,7 @@ export default (
 		width: '100%',
 		background: variables.containerBackground,
 		color: variables.containerColor,
-		padding: '0px',
+		padding: '12px',
 		borderRadius: 0,
 		label: 'comment-box-container',
 	});
