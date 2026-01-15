@@ -66,37 +66,37 @@ export default (
 
 	const themeVariables = {
 		light: {
-			containerBackground: 'transparent',
-			containerColor: '#212529',
-			commentItemBackground: '#f6f8fa',
-			commentItemBorder: '#d0d7de',
-			commentHeaderColor: '#212529',
-			commentAuthorColor: '#000000',
+			containerBackground: '#ffffff',
+			containerColor: '#24292f',
+			commentItemBackground: '#ffffff',
+			commentItemBorder: '#d1d9e0',
+			commentHeaderColor: '#24292f',
+			commentAuthorColor: '#0969da',
 			commentTimestampColor: '#656d76',
-			commentContentColor: '#1f2328',
+			commentContentColor: '#24292f',
 			buttonBackground: '#2da44e',
 			buttonColor: '#fff',
 			buttonHoverBackground: '#2c974b',
-			inputBackground: '#fff',
-			inputBorder: '#d0d7de',
+			inputBackground: '#ffffff',
+			inputBorder: '#d1d9e0',
 			inputFocusBorder: '#0969da',
 			avatarBackground: '#0969da',
 			avatarColor: '#fff',
 			...(overrideVariables.light || {}),
 		},
 		dark: {
-			containerBackground: 'transparent',
-			containerColor: '#fff',
-			commentItemBackground: '#363946',
-			commentItemBorder: '#464c67',
-			commentHeaderColor: '#fff',
-			commentAuthorColor: '#ffffff',
+			containerBackground: '#0d1117',
+			containerColor: '#c9d1d9',
+			commentItemBackground: '#161b22',
+			commentItemBorder: '#30363d',
+			commentHeaderColor: '#c9d1d9',
+			commentAuthorColor: '#58a6ff',
 			commentTimestampColor: '#8b949e',
 			commentContentColor: '#c9d1d9',
 			buttonBackground: '#238636',
 			buttonColor: '#fff',
 			buttonHoverBackground: '#2ea043',
-			inputBackground: '#21262d',
+			inputBackground: '#0d1117',
 			inputBorder: '#30363d',
 			inputFocusBorder: '#58a6ff',
 			avatarBackground: '#58a6ff',
@@ -111,20 +111,20 @@ export default (
 		width: '100%',
 		background: variables.containerBackground,
 		color: variables.containerColor,
-		padding: '12px',
+		padding: '16px',
 		borderRadius: 0,
+		fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji"',
+		fontSize: '14px',
+		lineHeight: '1.5',
 		label: 'comment-box-container',
 	});
 
 	const commentItem = css({
 		background: variables.commentItemBackground,
-		borderTop: `1px solid ${variables.commentItemBorder}`,
-		borderRight: `1px solid ${variables.commentItemBorder}`,
-		borderBottom: `1px solid ${variables.commentItemBorder}`,
-		borderLeft: '2px solid #0066cc',
-		borderRadius: '8px',
-		padding: '8px',
-		marginBottom: '4px',
+		border: `1px solid ${variables.commentItemBorder}`,
+		borderRadius: '6px',
+		padding: '16px',
+		marginBottom: '16px',
 		label: 'comment-item',
 		'&:last-child': {
 			marginBottom: 0,
@@ -135,13 +135,13 @@ export default (
 		display: 'flex',
 		alignItems: 'flex-start',
 		marginBottom: '12px',
-		gap: '12px',
+		gap: '8px',
 		label: 'comment-header',
 	});
 
 	const commentAvatar = css({
-		width: '46px',
-		height: '48px',
+		width: '32px',
+		height: '32px',
 		borderRadius: '50%',
 		overflow: 'hidden',
 		flexShrink: 0,
@@ -161,8 +161,8 @@ export default (
 		display: 'flex',
 		alignItems: 'center',
 		justifyContent: 'center',
-		fontSize: '20px',
-		fontWeight: 700,
+		fontSize: '14px',
+		fontWeight: 600,
 		label: 'avatar-placeholder',
 	});
 
@@ -170,14 +170,14 @@ export default (
 		flex: 1,
 		display: 'flex',
 		flexDirection: 'column',
-		gap: '4px',
+		gap: '2px',
 		label: 'comment-user-info',
 	});
 
 	const commentUserMain = css({
 		display: 'flex',
 		alignItems: 'center',
-		gap: '8px',
+		gap: '6px',
 		flexWrap: 'wrap',
 		label: 'comment-user-main',
 	});
@@ -185,38 +185,43 @@ export default (
 	const commentAuthor = css({
 		fontWeight: 600,
 		color: variables.commentAuthorColor,
-		fontSize: '17px',
+		fontSize: '14px',
+		textDecoration: 'none',
+		'&:hover': {
+			textDecoration: 'underline',
+		},
 		label: 'comment-author',
 	});
 
 	const commentHandle = css({
 		color: variables.commentTimestampColor,
-		fontSize: '13px',
-		fontStyle: 'normal', // 确保 @ 符号显示为正体，不是斜体
+		fontSize: '12px',
+		fontStyle: 'normal',
 		label: 'comment-handle',
 	});
 
 	const commentRole = css({
-		color: '#0969da',
+		color: variables.commentTimestampColor,
 		fontSize: '12px',
 		padding: '2px 6px',
 		background: 'transparent',
 		borderRadius: '3px',
+		border: `1px solid ${variables.commentItemBorder}`,
 		label: 'comment-role',
 	});
 
 	const commentTimestamp = css({
 		color: variables.commentTimestampColor,
-		fontSize: '14px',
+		fontSize: '12px',
 		label: 'comment-timestamp',
 	});
 
 	const commentContent = css({
 		color: variables.commentContentColor,
-		fontSize: '15px',
-		lineHeight: '1.6',
-		marginBottom: '8px',
-		marginLeft: '58px', // 头像宽度(48px) + gap(12px) = 60px，与 author 对齐
+		fontSize: '14px',
+		lineHeight: '1.5',
+		marginTop: '8px',
+		marginBottom: '0',
 		whiteSpace: 'pre-wrap',
 		wordBreak: 'break-word',
 		label: 'comment-content',
@@ -328,8 +333,8 @@ export default (
 	});
 
 	const repliesContainer = css({
-		marginTop: '12px',
-		paddingLeft: '24px',
+		marginTop: '16px',
+		paddingLeft: '16px',
 		borderLeft: `2px solid ${variables.commentItemBorder}`,
 		label: 'replies-container',
 	});

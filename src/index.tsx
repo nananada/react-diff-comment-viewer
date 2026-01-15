@@ -243,8 +243,8 @@ class DiffViewer extends React.Component<
 
 		// 如果当前行在评论范围内，且不是添加或删除的行，行号背景使用淡蓝色
 		// 添加和删除的行号保持原来的绿色和红色背景
-		const lightBlue = this.props.useDarkTheme ? '#2d4a6b' : '#e6f3ff';
-		const darkerLightBlue = this.props.useDarkTheme ? '#1e4a6b' : '#cce5ff';
+		const lightBlue = this.props.useDarkTheme ? 'rgba(45, 74, 107, 0.3)' : 'rgba(230, 243, 255, 0.35)';
+		const darkerLightBlue = this.props.useDarkTheme ? 'rgba(30, 74, 107, 0.4)' : 'rgba(204, 229, 255, 0.45)';
 		
 		// 如果当前单元格是空单元格且在评论范围内，行号背景使用稍微深一点的淡蓝色
 		// 如果当前单元格不是空单元格且在评论范围内，行号背景使用淡蓝色
@@ -371,7 +371,7 @@ class DiffViewer extends React.Component<
 		
 		// 如果当前行在评论范围内，且不是删除或添加的行，添加淡蓝色背景
 		// 删除和添加的行保持原来的红色和绿色背景，但空单元格会单独处理显示淡蓝色
-		const lightBlue = this.props.useDarkTheme ? '#2d4a6b' : '#e6f3ff';
+		const lightBlue = this.props.useDarkTheme ? 'rgba(45, 74, 107, 0.4)' : 'rgba(230, 243, 255, 0.35)';
 		const rowStyle = (isInCommentRange && left.type !== DiffType.REMOVED && right.type !== DiffType.ADDED) 
 			? { backgroundColor: lightBlue } 
 			: {};
