@@ -101,8 +101,8 @@ export default (
 				gutterBackgroundDark: '#f0efe9',
 				highlightBackground: '#fffbdd',
 				highlightGutterBackground: '#fff5b1',
-				codeFoldGutterBackground: '#dbedff',
-				codeFoldBackground: '#f1f8ff',
+				codeFoldGutterBackground: '#e8e8e8',
+				codeFoldBackground: '#f5f5f5',
 				emptyLineBackground: '#f5f4f1',
 				gutterColor: '#656d76',
 				addedGutterColor: '#656d76',
@@ -174,7 +174,9 @@ export default (
 	});
 
 	const codeFoldContent = css({
-		color: variables.codeFoldContentColor,
+		color: '#6a737d', // 灰色
+		fontStyle: 'italic', // 斜体
+		fontSize: '12px', // 字号小两号（默认通常是14px或16px，12px是小两号）
 		label: 'code-fold-content',
 	});
 

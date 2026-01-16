@@ -370,39 +370,36 @@ class DiffViewer extends React.Component<
 		index: number,
 		actualRenderedIndex?: number,
 		totalLines?: number,
+		commentRangeRowSpan?: number,
 	): JSX.Element => {
 		const { commentRow, commentRowLineNumber, commentRowEndLineNumber, showDiffOnly } = this.props;
 		// 并排模式：如果指定了开始行和结束行，评论框显示在中间位置；否则显示在指定行
-		// commentRowLineNumber 和 commentRowEndLineNumber 对应的是 lineInformation 数组的索引（index），而不是实际渲染的行索引
+		// commentRowLineNumber 和 commentRowEndLineNumber 对应的是 new code 的行号（right.lineNumber）
 		let shouldShowComment = false;
 		let isInCommentRange = false;
-		let commentRangeRowSpan = 0;
 		let isStartOfCommentRange = false;
+		// 使用传入的 commentRangeRowSpan（在 renderDiff 中已计算）
+		// 如果没有传入，则使用简单的计算作为后备
+		let finalCommentRangeRowSpan = commentRangeRowSpan;
+		if (finalCommentRangeRowSpan === undefined && commentRowEndLineNumber !== undefined && commentRowLineNumber !== undefined) {
+			finalCommentRangeRowSpan = commentRowEndLineNumber - commentRowLineNumber + 1;
+		}
 		
-		if (commentRow && commentRowLineNumber !== undefined) {
+		if (commentRow && commentRowLineNumber !== undefined && right && right.lineNumber !== undefined && right.lineNumber !== null) {
+			const rightLineNumber = right.lineNumber;
 			if (commentRowEndLineNumber !== undefined) {
 				// 有开始行和结束行：在开始行显示评论框，rowSpan 覆盖整个区间
-				// 使用 index 来匹配，因为 commentRowLineNumber 对应的是 lineInformation 数组的索引
-				shouldShowComment = showDiffOnly 
-					? actualRenderedIndex === commentRowLineNumber 
-					: index === commentRowLineNumber;
+				// 基于 new code 的行号 right.lineNumber 来判断
+				shouldShowComment = rightLineNumber === commentRowLineNumber;
 				// 判断当前行是否在开始行和结束行之间
-				isInCommentRange = showDiffOnly
-					? (actualRenderedIndex !== undefined && actualRenderedIndex >= commentRowLineNumber && actualRenderedIndex <= commentRowEndLineNumber)
-					: (index >= commentRowLineNumber && index <= commentRowEndLineNumber);
+				isInCommentRange = rightLineNumber >= commentRowLineNumber && rightLineNumber <= commentRowEndLineNumber;
 				// 判断是否是开始行
-				isStartOfCommentRange = index === commentRowLineNumber;
-				// 计算 rowSpan：从开始行到结束行的行数
-				commentRangeRowSpan = commentRowEndLineNumber - commentRowLineNumber + 1;
+				isStartOfCommentRange = rightLineNumber === commentRowLineNumber;
 			} else {
 				// 只有开始行：显示在开始行
-				shouldShowComment = showDiffOnly 
-					? actualRenderedIndex === commentRowLineNumber 
-					: index === commentRowLineNumber;
+				shouldShowComment = rightLineNumber === commentRowLineNumber;
 				// 判断当前行是否在开始行
-				isInCommentRange = showDiffOnly
-					? (actualRenderedIndex !== undefined && actualRenderedIndex === commentRowLineNumber)
-					: (index === commentRowLineNumber);
+				isInCommentRange = rightLineNumber === commentRowLineNumber;
 			}
 		}
 		
@@ -447,7 +444,7 @@ class DiffViewer extends React.Component<
 							backgroundColor: 'transparent',
 							position: 'relative',
 						}}
-						rowSpan={commentRangeRowSpan}>
+						rowSpan={finalCommentRangeRowSpan}>
 						{commentRow}
 					</td>
 				)}
@@ -483,7 +480,7 @@ class DiffViewer extends React.Component<
 							backgroundColor: '#f5f5f5',
 							position: 'relative',
 						}}
-						rowSpan={commentRangeRowSpan}>
+						rowSpan={finalCommentRangeRowSpan}>
 					</td>
 				)}
 			</tr>
@@ -682,18 +679,36 @@ class DiffViewer extends React.Component<
 		// 跟踪实际渲染的行索引（用于并排模式的 commentRowLineNumber 匹配）
 		let actualRenderedIndex = 0;
 		
-		// 判断是否在评论范围内
-		const isInCommentRange = (index: number): boolean => {
+		// 判断是否在评论范围内（基于 new code 的行号 right.lineNumber）
+		const isInCommentRange = (line: LineInformation): boolean => {
 			if (commentRowLineNumber === undefined) {
 				return false;
 			}
-			if (commentRowEndLineNumber !== undefined) {
-				return index >= commentRowLineNumber && index <= commentRowEndLineNumber;
+			// 如果 right.lineNumber 不存在，说明这是删除的行，在 new code 中没有行号，不应该算进行号里
+			if (!line.right || line.right.lineNumber === undefined || line.right.lineNumber === null) {
+				return false;
 			}
-			return index === commentRowLineNumber;
+			const rightLineNumber = line.right.lineNumber;
+			if (commentRowEndLineNumber !== undefined) {
+				return rightLineNumber >= commentRowLineNumber && rightLineNumber <= commentRowEndLineNumber;
+			}
+			return rightLineNumber === commentRowLineNumber;
 		};
 		
 		// 新的折叠逻辑：基于 commentRowLineNumber 和 commentRowEndLineNumber
+		// 计算并排模式下的 commentRangeRowSpan（统计实际在范围内的行数）
+		let commentRangeRowSpan = 0;
+		if (commentRowLineNumber !== undefined && commentRowEndLineNumber !== undefined && splitView) {
+			lineInformation.forEach((line: LineInformation) => {
+				if (line.right && line.right.lineNumber !== undefined && line.right.lineNumber !== null) {
+					const rightLineNumber = line.right.lineNumber;
+					if (rightLineNumber >= commentRowLineNumber && rightLineNumber <= commentRowEndLineNumber) {
+						commentRangeRowSpan++;
+					}
+				}
+			});
+		}
+		
 		if (commentRowLineNumber !== undefined) {
 			let currentFoldBlockStart: number | null = null;
 			let currentFoldBlockLines: number[] = [];
@@ -701,7 +716,7 @@ class DiffViewer extends React.Component<
 		
 		lineInformation.forEach(
 			(line: LineInformation, i: number): void => {
-					const inRange = isInCommentRange(i);
+					const inRange = isInCommentRange(line);
 					
 					// 如果当前行不在评论范围内
 					if (!inRange) {
@@ -715,7 +730,7 @@ class DiffViewer extends React.Component<
 						
 						// 如果这是最后一行，或者是折叠块的结束（下一行在范围内）
 						const isLastLine = i === lineInformation.length - 1;
-						const nextLineInRange = !isLastLine && isInCommentRange(i + 1);
+						const nextLineInRange = !isLastLine && isInCommentRange(lineInformation[i + 1]);
 						
 						if (isLastLine || nextLineInRange) {
 							// 检查该折叠块是否已展开
@@ -737,7 +752,7 @@ class DiffViewer extends React.Component<
 								currentFoldBlockLines.forEach((foldLineIndex) => {
 									const foldLine = lineInformation[foldLineIndex];
 									const diffNodes = splitView
-										? this.renderSplitView(foldLine, foldLineIndex, actualRenderedIndex, lineInformation.length)
+										? this.renderSplitView(foldLine, foldLineIndex, actualRenderedIndex, lineInformation.length, commentRangeRowSpan)
 										: this.renderInlineView(foldLine, foldLineIndex);
 									actualRenderedIndex++;
 									result.push(diffNodes);
@@ -770,7 +785,7 @@ class DiffViewer extends React.Component<
 								currentFoldBlockLines.forEach((foldLineIndex) => {
 									const foldLine = lineInformation[foldLineIndex];
 									const diffNodes = splitView
-										? this.renderSplitView(foldLine, foldLineIndex, actualRenderedIndex, lineInformation.length)
+										? this.renderSplitView(foldLine, foldLineIndex, actualRenderedIndex, lineInformation.length, commentRangeRowSpan)
 										: this.renderInlineView(foldLine, foldLineIndex);
 									actualRenderedIndex++;
 									result.push(diffNodes);
@@ -782,13 +797,13 @@ class DiffViewer extends React.Component<
 						
 						// 渲染当前行
 				const diffNodes = splitView
-					? this.renderSplitView(line, i, actualRenderedIndex, lineInformation.length)
+					? this.renderSplitView(line, i, actualRenderedIndex, lineInformation.length, commentRangeRowSpan)
 					: this.renderInlineView(line, i);
 				actualRenderedIndex++;
 					result.push(diffNodes);
 
-				// 在行内模式下，在指定行之后插入评论框
-						if (!splitView && commentRow && i === commentRowLineNumber) {
+				// 在行内模式下，在指定行之后插入评论框（基于 new code 的行号 right.lineNumber）
+						if (!splitView && commentRow && line.right && line.right.lineNumber !== undefined && line.right.lineNumber !== null && line.right.lineNumber === (commentRowEndLineNumber !== undefined ? commentRowEndLineNumber : commentRowLineNumber)) {
 					const colSpanOnInlineView = this.props.hideLineNumbers ? 2 : 4;
 					result.push(
 						<tr key={`comment-${i}`}>
@@ -812,7 +827,7 @@ class DiffViewer extends React.Component<
 			lineInformation.forEach(
 				(line: LineInformation, i: number): void => {
 					const diffNodes = splitView
-						? this.renderSplitView(line, i, actualRenderedIndex, lineInformation.length)
+						? this.renderSplitView(line, i, actualRenderedIndex, lineInformation.length, commentRangeRowSpan)
 						: this.renderInlineView(line, i);
 					actualRenderedIndex++;
 					result.push(diffNodes);
