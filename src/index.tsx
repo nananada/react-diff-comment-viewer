@@ -77,6 +77,8 @@ export interface ReactDiffViewerProps {
 export interface ReactDiffViewerState {
 	// Array holding the expanded code folding.
 	expandedBlocks?: number[];
+	// Whether the entire diff is collapsed
+	isCollapsed?: boolean;
 }
 
 class DiffViewer extends React.Component<
@@ -123,6 +125,7 @@ class DiffViewer extends React.Component<
 
 		this.state = {
 			expandedBlocks: [],
+			isCollapsed: false,
 		};
 	}
 
@@ -141,6 +144,31 @@ class DiffViewer extends React.Component<
 	};
 
 	/**
+	 * Copies text to clipboard.
+	 */
+	private copyToClipboard = (text: string): void => {
+		if (navigator.clipboard && navigator.clipboard.writeText) {
+			navigator.clipboard.writeText(text).catch((err) => {
+				console.error('Failed to copy text:', err);
+			});
+		} else {
+			// Fallback for older browsers
+			const textArea = document.createElement('textarea');
+			textArea.value = text;
+			textArea.style.position = 'fixed';
+			textArea.style.left = '-999999px';
+			document.body.appendChild(textArea);
+			textArea.select();
+			try {
+				document.execCommand('copy');
+			} catch (err) {
+				console.error('Failed to copy text:', err);
+			}
+			document.body.removeChild(textArea);
+		}
+	};
+
+	/**
 	 * Pushes the target expanded code block to the state. During the re-render,
 	 * this value is used to expand/fold unmodified code.
 	 */
@@ -150,6 +178,15 @@ class DiffViewer extends React.Component<
 
 		this.setState({
 			expandedBlocks: prevState,
+		});
+	};
+
+	/**
+	 * Toggles the collapsed state of the entire diff.
+	 */
+	private toggleCollapse = (): void => {
+		this.setState({
+			isCollapsed: !this.state.isCollapsed,
 		});
 	};
 
@@ -756,32 +793,104 @@ class DiffViewer extends React.Component<
 		const title = (leftTitle || rightTitle) && (
 			<tr>
 				<td
-					colSpan={splitView ? colSpanOnSplitView : colSpanOnInlineView}
-					className={this.styles.titleBlock}
-					style={splitView ? { borderRight: '1px solid #d0d7de' } : {}}>
-					<pre className={this.styles.contentText}>{leftTitle}</pre>
+					colSpan={splitView ? (colSpanOnSplitView * 2 + (commentRow ? colSpanOnSplitView : 0)) : colSpanOnInlineView}
+					className={this.styles.titleBlock}>
+					<div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+						<button
+							onClick={this.toggleCollapse}
+							style={{
+								background: 'transparent',
+								border: 'none',
+								cursor: 'pointer',
+								padding: '4px',
+								display: 'flex',
+								alignItems: 'center',
+								justifyContent: 'center',
+								color: '#656d76',
+								fontSize: '16px',
+								lineHeight: '1',
+							}}
+							title={this.state.isCollapsed ? 'Expand diff' : 'Collapse diff'}>
+							{this.state.isCollapsed ? (
+								<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+									<path d="M6 4L10 8L6 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+								</svg>
+							) : (
+								<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+									<path d="M4 6L8 10L12 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+								</svg>
+							)}
+						</button>
+						<div style={{ display: 'flex', alignItems: 'center', gap: '6px', position: 'relative' }}>
+							<pre className={this.styles.contentText} style={{ margin: 0 }}>
+								{splitView ? (
+									<>
+										{leftTitle}
+									</>
+								) : (
+									leftTitle
+								)}
+							</pre>
+							{leftTitle && typeof leftTitle === 'string' && (
+								<button
+									onClick={() => this.copyToClipboard(leftTitle as string)}
+									style={{
+										background: 'transparent',
+										border: 'none',
+										cursor: 'pointer',
+										padding: '2px',
+										display: 'flex',
+										alignItems: 'center',
+										justifyContent: 'center',
+										color: '#656d76',
+										opacity: 0.6,
+									}}
+									title="复制文件路径"
+									onMouseEnter={(e) => {
+										e.currentTarget.style.opacity = '1';
+									}}
+									onMouseLeave={(e) => {
+										e.currentTarget.style.opacity = '0.6';
+									}}>
+									<svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+										<path d="M5.5 2.5H3.75C2.50736 2.5 1.5 3.50736 1.5 4.75V12.25C1.5 13.4926 2.50736 14.5 3.75 14.5H11.25C12.4926 14.5 13.5 13.4926 13.5 12.25V10.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+										<path d="M5.5 2.5H10.25C11.4926 2.5 12.5 3.50736 12.5 4.75V9.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+										<path d="M10.5 1.5H5.5V6.5H10.5V1.5Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+									</svg>
+								</button>
+							)}
+						</div>
+					</div>
 				</td>
-				{splitView && (
-					<>
-						<td 
-							colSpan={colSpanOnSplitView} 
-							className={this.styles.titleBlock}
-							style={{ borderRight: '1px solid #d0d7de' }}>
-							<pre className={this.styles.contentText}>{rightTitle}</pre>
-						</td>
-						{commentRow && (
-							<td 
-								className={this.styles.titleBlock} 
-								style={{ 
-									width: '33.33%', 
-									minWidth: '300px',
-									borderLeft: '1px solid #d0d7de',
-								}}>
-								<pre className={this.styles.contentText}>Comments</pre>
-							</td>
-						)}
-					</>
-				)}
+			</tr>
+		);
+
+		// Collapsed message row
+		const collapsedMessage = this.state.isCollapsed && (
+			<tr>
+				<td
+					colSpan={splitView ? (colSpanOnSplitView * 2 + (commentRow ? colSpanOnSplitView : 0)) : colSpanOnInlineView}
+					className={this.styles.titleBlock}
+					style={{ padding: '12px 16px', textAlign: 'center' }}>
+					<pre className={this.styles.contentText} style={{ margin: 0, color: '#24292f', textAlign: 'center' }}>
+						<span style={{ color: '#24292f' }}>This diff is collapsed. </span>
+						<span
+							onClick={this.toggleCollapse}
+							style={{
+								color: '#0969da',
+								cursor: 'pointer',
+								textDecoration: 'none',
+							}}
+							onMouseEnter={(e) => {
+								e.currentTarget.style.textDecoration = 'underline';
+							}}
+							onMouseLeave={(e) => {
+								e.currentTarget.style.textDecoration = 'none';
+							}}>
+							Click to expand it.
+						</span>
+					</pre>
+				</td>
 			</tr>
 		);
 
@@ -807,8 +916,8 @@ class DiffViewer extends React.Component<
 				})}>
 				<tbody>
 					{title}
-					{nodes}
-					{commentRowElement}
+					{this.state.isCollapsed ? collapsedMessage : nodes}
+					{!this.state.isCollapsed && commentRowElement}
 				</tbody>
 			</table>
 		);
