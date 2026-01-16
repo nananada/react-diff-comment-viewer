@@ -671,82 +671,124 @@ class DiffViewer extends React.Component<
 			commentRowLineNumber,
 			commentRowEndLineNumber,
 		} = this.props;
-		const { lineInformation, diffLines } = computeLineInformation(
+		const { lineInformation } = computeLineInformation(
 			oldValue,
 			newValue,
 			disableWordDiff,
 			compareMethod,
 			linesOffset,
 		);
-		const extraLines =
-			this.props.extraLinesSurroundingDiff < 0
-				? 0
-				: this.props.extraLinesSurroundingDiff;
-		let skippedLines: number[] = [];
 		const result: (JSX.Element | null)[] = [];
 		// 跟踪实际渲染的行索引（用于并排模式的 commentRowLineNumber 匹配）
 		let actualRenderedIndex = 0;
 		
+		// 判断是否在评论范围内
+		const isInCommentRange = (index: number): boolean => {
+			if (commentRowLineNumber === undefined) {
+				return false;
+			}
+			if (commentRowEndLineNumber !== undefined) {
+				return index >= commentRowLineNumber && index <= commentRowEndLineNumber;
+			}
+			return index === commentRowLineNumber;
+		};
+		
+		// 新的折叠逻辑：基于 commentRowLineNumber 和 commentRowEndLineNumber
+		if (commentRowLineNumber !== undefined) {
+			let currentFoldBlockStart: number | null = null;
+			let currentFoldBlockLines: number[] = [];
+			let foldBlockId = 0;
+		
 		lineInformation.forEach(
 			(line: LineInformation, i: number): void => {
-				const diffBlockStart = diffLines[0];
-				const currentPosition = diffBlockStart - i;
-				if (this.props.showDiffOnly) {
-					if (currentPosition === -extraLines) {
-						skippedLines = [];
-						diffLines.shift();
-					}
-					if (
-						line.left.type === DiffType.DEFAULT &&
-						(currentPosition > extraLines ||
-							typeof diffBlockStart === 'undefined') &&
-						!this.state.expandedBlocks.includes(diffBlockStart)
-					) {
-						skippedLines.push(i + 1);
-						if (i === lineInformation.length - 1 && skippedLines.length > 1) {
+					const inRange = isInCommentRange(i);
+					
+					// 如果当前行不在评论范围内
+					if (!inRange) {
+						// 如果这是折叠块的开始
+						if (currentFoldBlockStart === null) {
+							currentFoldBlockStart = i;
+							currentFoldBlockLines = [];
+							foldBlockId = i; // 使用行索引作为折叠块 ID
+						}
+						currentFoldBlockLines.push(i);
+						
+						// 如果这是最后一行，或者是折叠块的结束（下一行在范围内）
+						const isLastLine = i === lineInformation.length - 1;
+						const nextLineInRange = !isLastLine && isInCommentRange(i + 1);
+						
+						if (isLastLine || nextLineInRange) {
+							// 检查该折叠块是否已展开
+							const isExpanded = this.state.expandedBlocks.includes(foldBlockId);
+							
+							if (!isExpanded && currentFoldBlockLines.length > 0) {
+								// 显示折叠指示器
+								const firstLine = lineInformation[currentFoldBlockStart!];
+								const lastLine = lineInformation[currentFoldBlockLines[currentFoldBlockLines.length - 1]];
 							actualRenderedIndex++;
 							result.push(this.renderSkippedLineIndicator(
-								skippedLines.length,
-								diffBlockStart,
-								line.left.lineNumber,
-								line.right.lineNumber,
+									currentFoldBlockLines.length,
+									foldBlockId,
+									firstLine.left.lineNumber,
+									lastLine.right.lineNumber,
 							));
+							} else if (isExpanded) {
+								// 显示所有折叠的行
+								currentFoldBlockLines.forEach((foldLineIndex) => {
+									const foldLine = lineInformation[foldLineIndex];
+									const diffNodes = splitView
+										? this.renderSplitView(foldLine, foldLineIndex, actualRenderedIndex, lineInformation.length)
+										: this.renderInlineView(foldLine, foldLineIndex);
+									actualRenderedIndex++;
+									result.push(diffNodes);
+								});
+							}
+							
+							// 重置折叠块状态
+							currentFoldBlockStart = null;
+							currentFoldBlockLines = [];
 						} else {
+							// 继续收集折叠行，不渲染
 							result.push(null);
 						}
-						return;
-					}
-				}
-
-				// 只有实际渲染的行才增加 actualRenderedIndex
-				// 注意：actualRenderedIndex 在调用 renderSplitView 之前就已经是当前行的索引
+					} else {
+						// 当前行在评论范围内，直接显示
+						// 如果之前有折叠块，先结束它
+						if (currentFoldBlockStart !== null && currentFoldBlockLines.length > 0) {
+							const isExpanded = this.state.expandedBlocks.includes(foldBlockId);
+							if (!isExpanded) {
+								const firstLine = lineInformation[currentFoldBlockStart];
+								const lastLine = lineInformation[currentFoldBlockLines[currentFoldBlockLines.length - 1]];
+								actualRenderedIndex++;
+								result.push(this.renderSkippedLineIndicator(
+									currentFoldBlockLines.length,
+									foldBlockId,
+									firstLine.left.lineNumber,
+									lastLine.right.lineNumber,
+								));
+							} else {
+								currentFoldBlockLines.forEach((foldLineIndex) => {
+									const foldLine = lineInformation[foldLineIndex];
+									const diffNodes = splitView
+										? this.renderSplitView(foldLine, foldLineIndex, actualRenderedIndex, lineInformation.length)
+										: this.renderInlineView(foldLine, foldLineIndex);
+									actualRenderedIndex++;
+									result.push(diffNodes);
+								});
+							}
+							currentFoldBlockStart = null;
+							currentFoldBlockLines = [];
+						}
+						
+						// 渲染当前行
 				const diffNodes = splitView
 					? this.renderSplitView(line, i, actualRenderedIndex, lineInformation.length)
 					: this.renderInlineView(line, i);
-				
-				// 渲染完当前行后，增加 actualRenderedIndex
 				actualRenderedIndex++;
-
-				if (currentPosition === extraLines && skippedLines.length > 0) {
-					const { length } = skippedLines;
-					skippedLines = [];
-					result.push(
-						<React.Fragment key={i}>
-							{this.renderSkippedLineIndicator(
-								length,
-								diffBlockStart,
-								line.left.lineNumber,
-								line.right.lineNumber,
-							)}
-							{diffNodes}
-						</React.Fragment>
-					);
-				} else {
 					result.push(diffNodes);
-				}
 
 				// 在行内模式下，在指定行之后插入评论框
-				if (!splitView && commentRow && commentRowLineNumber !== undefined && i === commentRowLineNumber) {
+						if (!splitView && commentRow && i === commentRowLineNumber) {
 					const colSpanOnInlineView = this.props.hideLineNumbers ? 2 : 4;
 					result.push(
 						<tr key={`comment-${i}`}>
@@ -761,9 +803,27 @@ class DiffViewer extends React.Component<
 							</td>
 						</tr>
 					);
+						}
 				}
 			},
 		);
+		} else {
+			// 如果没有定义 commentRowLineNumber，显示所有行（保持原有行为）
+			lineInformation.forEach(
+				(line: LineInformation, i: number): void => {
+					const diffNodes = splitView
+						? this.renderSplitView(line, i, actualRenderedIndex, lineInformation.length)
+						: this.renderInlineView(line, i);
+					actualRenderedIndex++;
+					result.push(diffNodes);
+					
+					// 在行内模式下，在指定行之后插入评论框
+					if (!splitView && commentRow && commentRowLineNumber === undefined) {
+						// 这个逻辑在 render 方法中处理
+					}
+				},
+			);
+		}
 		
 		return result.filter((node): node is JSX.Element => node !== null);
 	};
