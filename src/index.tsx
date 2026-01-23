@@ -990,43 +990,40 @@ class DiffViewer extends React.Component<
 			</tr>
 		);
 
-		// 计算列宽：在 split view 模式下，如果有 commentRow，需要设置行号、左代码、右代码、comment 的宽度
-		// 三个区域各占33%：左代码区域（行号50px + marker 25px + 内容），右代码区域，comment区域
-		// 总宽度100%，固定宽度列：50px + 25px + 50px + 25px = 150px
-		// 剩余空间 = 100% - 150px，需要被三个33%的列分配
-		// 但我们需要的是：左内容 = 33%, 右内容 = 33%, comment = 33%
+		// 保持三等分逻辑：左代码区域、右代码区域、评论区域各占33.33%
+		// 行号和标记列保持固定宽度，内容列使用 calc(33.33% - 固定宽度) 来保持三等分
+		// 表格使用 fixed 布局以确保三等分，但内容可以折行（通过 pre-wrap）
 		const colgroup = splitView && !hideLineNumbers ? (
 			<colgroup>
-				{/* 并排模式下，当有 commentRow 时，三个区域各占33% */}
-				{/* 左代码区域总共占33%：行号50px + marker 25px + 内容 */}
+				{/* 左代码区域总共占33.33%：行号50px + marker 25px + 内容 */}
 				{/* 左行号 - 固定50px */}
 				<col style={{ width: '50px' }} />
 				{/* 左代码 marker - 固定25px */}
 				<col style={{ width: '25px' }} />
-				{/* 左代码 content - 确保左代码区域总共占33%（有commentRow）或50%（无commentRow） */}
-				<col style={{ width: commentRow ? '33%' : 'calc(50% - 75px)' }} />
-				{/* 右代码区域总共占33%：行号50px + marker 25px + 内容 */}
+				{/* 左代码 content - 确保左代码区域总共占33.33%（有commentRow）或50%（无commentRow） */}
+				<col style={{ width: commentRow ? '33.33%' : '50%' }} />
+				{/* 右代码区域总共占33.33%：行号50px + marker 25px + 内容 */}
 				{/* 右行号 - 固定50px */}
 				<col style={{ width: '50px' }} />
 				{/* 右代码 marker - 固定25px */}
 				<col style={{ width: '25px' }} />
-				{/* 右代码 content - 确保右代码区域总共占33%（有commentRow）或50%（无commentRow） */}
-				<col style={{ width: commentRow ? '33%' : 'calc(50% - 75px)' }} />
-				{/* comment 列 - 占33% */}
-				{commentRow && <col style={{ width: '33%' }} />}
+				{/* 右代码 content - 确保右代码区域总共占33.33%（有commentRow）或50%（无commentRow） */}
+				<col style={{ width: commentRow ? '33.33%' : 'calc50%' }} />
+				{/* comment 列 - 占33.33% */}
+				{commentRow && <col style={{ width: '33.33%' }} />}
 			</colgroup>
 		) : splitView && hideLineNumbers ? (
 			<colgroup>
-				{/* 左代码 marker */}
+				{/* 左代码 marker - 固定25px */}
 				<col style={{ width: '25px' }} />
-				{/* 左代码 content */}
-				<col style={{ width: commentRow ? '33%' : 'calc(50% - 12.5px)' }} />
-				{/* 右代码 marker */}
+				{/* 左代码 content - 确保左代码区域总共占33.33%（有commentRow）或50%（无commentRow） */}
+				<col style={{ width: commentRow ? '33.33%' : '50%' }} />
+				{/* 右代码 marker - 固定25px */}
 				<col style={{ width: '25px' }} />
-				{/* 右代码 content */}
-				<col style={{ width: commentRow ? '33%' : 'calc(50% - 12.5px)' }} />
-				{/* comment 列 */}
-				{commentRow && <col style={{ width: '33%' }} />}
+				{/* 右代码 content - 确保右代码区域总共占33.33%（有commentRow）或50%（无commentRow） */}
+				<col style={{ width: commentRow ? '33.33%' : '50%' }} />
+				{/* comment 列 - 占33.33% */}
+				{commentRow && <col style={{ width: '33.33%' }} />}
 			</colgroup>
 		) : !splitView && !hideLineNumbers ? (
 			// 行内模式下，不设置 colgroup，让表格自动布局，content 列自适应
@@ -1039,12 +1036,9 @@ class DiffViewer extends React.Component<
 					[this.styles.splitView]: splitView,
 				})}
 				style={{
-					...(splitView ? { 
-						tableLayout: 'fixed', 
-						width: '100%',
-						// 确保表格宽度是 100%
-					} : {}),
-					...(!splitView && !hideLineNumbers ? { tableLayout: 'auto' } : {}),
+					width: '100%',
+					// 使用 fixed 布局以确保三等分逻辑，但内容可以折行（通过 pre-wrap）
+					...(splitView ? { tableLayout: 'fixed' } : { tableLayout: 'auto' }),
 				}}>
 				{colgroup}
 				<tbody>

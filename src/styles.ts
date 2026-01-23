@@ -179,15 +179,17 @@ export default (
 		fontSize: normalizedFontSize,
 		pre: {
 			margin: 0,
-			whiteSpace: 'pre-wrap',
+			whiteSpace: 'pre-wrap', // 允许代码折行
 			lineHeight: '24px',
 			fontFamily: "'SF Mono', 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'Courier New', monospace",
 			fontSize: normalizedFontSize,
 			textAlign: 'left',
+			wordBreak: 'break-word', // 允许长单词折行
 		},
 		label: 'diff-container',
 		borderCollapse: 'collapse',
-		tableLayout: 'fixed', // 固定表格布局，确保列宽不会因内容变化
+		// 默认使用 fixed 布局以确保三等分逻辑，但可以通过内联样式覆盖为 auto
+		tableLayout: 'fixed',
 	});
 
 	const codeFoldContent = css({
