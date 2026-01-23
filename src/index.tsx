@@ -72,6 +72,8 @@ export interface ReactDiffViewerProps {
 	commentRowLineNumber?: number;
 	// End line number for comment box range (0-based index in lineInformation array, or actual rendered line index if showDiffOnly is true)
 	commentRowEndLineNumber?: number;
+	// Font size for code lines (e.g., '14px', '16px', or 14)
+	fontSize?: string | number;
 }
 
 export interface ReactDiffViewerState {
@@ -100,6 +102,7 @@ class DiffViewer extends React.Component<
 		showDiffOnly: true,
 		useDarkTheme: false,
 		linesOffset: 0,
+		fontSize: '14px',
 	};
 
 	public static propTypes = {
@@ -118,6 +121,7 @@ class DiffViewer extends React.Component<
 		leftTitle: PropTypes.oneOfType([PropTypes.string, PropTypes.element]),
 		rightTitle: PropTypes.oneOfType([PropTypes.string, PropTypes.element]),
 		linesOffset: PropTypes.number,
+		fontSize: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
 	};
 
 	public constructor(props: ReactDiffViewerProps) {
@@ -199,6 +203,7 @@ class DiffViewer extends React.Component<
 	private computeStyles: (
 		styles: ReactDiffViewerStylesOverride,
 		useDarkTheme: boolean,
+		fontSize: string | number | undefined,
 	) => ReactDiffViewerStyles = memoize(computeStyles);
 
 	/**
@@ -215,40 +220,13 @@ class DiffViewer extends React.Component<
 	};
 
 	/**
-	 * Maps over the word diff and constructs the required React elements to show word diff.
-	 *
-	 * @param diffArray Word diff information derived from line information.
-	 * @param renderer Optional renderer to format diff words. Useful for syntax highlighting.
-	 */
-	private renderWordDiff = (
-		diffArray: DiffInformation[],
-		renderer?: (chunk: string) => JSX.Element,
-	): JSX.Element[] => {
-		return diffArray.map(
-			(wordDiff, i): JSX.Element => {
-				return (
-					<span
-						key={i}
-						className={cn(this.styles.wordDiff, {
-							[this.styles.wordAdded]: wordDiff.type === DiffType.ADDED,
-							[this.styles.wordRemoved]: wordDiff.type === DiffType.REMOVED,
-						})}>
-						{renderer ? renderer(wordDiff.value as string) : wordDiff.value}
-					</span>
-				);
-			},
-		);
-	};
-
-	/**
-	 * Maps over the line diff and constructs the required react elements to show line diff. It calls
-	 * renderWordDiff when encountering word diff. This takes care of both inline and split view line
-	 * renders.
+	 * Maps over the line diff and constructs the required react elements to show line diff.
+	 * This takes care of both inline and split view line renders.
 	 *
 	 * @param lineNumber Line number of the current line.
 	 * @param type Type of diff of the current line.
 	 * @param prefix Unique id to prefix with the line numbers.
-	 * @param value Content of the line. It can be a string or a word diff array.
+	 * @param value Content of the line.
 	 * @param additionalLineNumber Additional line number to be shown. Useful for rendering inline
 	 *  diff view. Right line number will be passed as additionalLineNumber.
 	 * @param additionalPrefix Similar to prefix but for additional line number.
@@ -257,10 +235,12 @@ class DiffViewer extends React.Component<
 		lineNumber: number,
 		type: DiffType,
 		prefix: LineNumberPrefix,
-		value: string | DiffInformation[],
+		value: string,
 		additionalLineNumber?: number,
 		additionalPrefix?: LineNumberPrefix,
 		isInCommentRange?: boolean,
+		leftLineNumberTemplate?: string,
+		rightLineNumberTemplate?: string,
 	): JSX.Element => {
 		const lineNumberTemplate = `${prefix}-${lineNumber}`;
 		const additionalLineNumberTemplate = `${additionalPrefix}-${additionalLineNumber}`;
@@ -270,9 +250,7 @@ class DiffViewer extends React.Component<
 		const added = type === DiffType.ADDED;
 		const removed = type === DiffType.REMOVED;
 		let content;
-		if (Array.isArray(value)) {
-			content = this.renderWordDiff(value, this.props.renderContent);
-		} else if (this.props.renderContent) {
+		if (this.props.renderContent) {
 			content = this.props.renderContent(value);
 		} else {
 			content = value;
@@ -293,6 +271,20 @@ class DiffViewer extends React.Component<
 		// 如果当前行在评论范围内，且是空单元格（删除行的右侧或添加行的左侧），显示稍微深一点的淡蓝色背景
 		const emptyCellStyle = (isInCommentRange && !content) ? { backgroundColor: darkerLightBlue } : {};
 
+		// 在并排视图中，列宽由 colgroup 控制，不设置内联宽度样式
+		// 在行内视图中，保持固定宽度以确保布局稳定
+		const isSplitView = this.props.splitView;
+		const gutterWidthStyle = isSplitView ? {} : {
+			width: '50px',
+			minWidth: '50px',
+			maxWidth: '50px',
+		};
+		const markerWidthStyle = isSplitView ? {} : {
+			width: '25px',
+			minWidth: '25px',
+			maxWidth: '25px',
+		};
+
 		return (
 			<React.Fragment>
 				{!this.props.hideLineNumbers && (
@@ -306,7 +298,10 @@ class DiffViewer extends React.Component<
 							[this.styles.diffRemoved]: removed,
 							[this.styles.highlightedGutter]: highlightLine,
 						})}
-						style={gutterStyle}>
+						style={{
+							...gutterStyle,
+							...gutterWidthStyle,
+						}}>
 						<pre className={this.styles.lineNumber}>{lineNumber}</pre>
 					</td>
 				)}
@@ -322,7 +317,12 @@ class DiffViewer extends React.Component<
 							[this.styles.diffRemoved]: removed,
 							[this.styles.highlightedGutter]: highlightLine,
 						})}
-						style={gutterStyle}>
+						style={{
+							...gutterStyle,
+							width: '50px',
+							minWidth: '50px',
+							maxWidth: '50px',
+						}}>
 						<pre className={this.styles.lineNumber}>{additionalLineNumber}</pre>
 					</td>
 				)}
@@ -331,9 +331,11 @@ class DiffViewer extends React.Component<
 						[this.styles.emptyLine]: !content,
 						[this.styles.diffAdded]: added,
 						[this.styles.diffRemoved]: removed,
-						[this.styles.highlightedLine]: highlightLine,
 					})}
-					style={emptyCellStyle}>
+					style={{
+						...emptyCellStyle,
+						...markerWidthStyle,
+					}}>
 					<pre>
 						{added && '+'}
 						{removed && '-'}
@@ -344,14 +346,13 @@ class DiffViewer extends React.Component<
 						[this.styles.emptyLine]: !content,
 						[this.styles.diffAdded]: added,
 						[this.styles.diffRemoved]: removed,
-						[this.styles.highlightedLine]: highlightLine,
 					})}
 					style={{
 						...emptyCellStyle,
 						...(this.props.splitView && prefix === LineNumberPrefix.LEFT ? { borderRight: '1px solid #d0d7de' } : {}),
 						...(this.props.splitView && prefix === LineNumberPrefix.RIGHT && this.props.commentRow ? { borderRight: '1px solid #d0d7de' } : {}),
 					}}>
-					<pre className={this.styles.contentText}>{content}</pre>
+					<pre className={this.styles.contentText} style={{ textAlign: 'left' }}>{content}</pre>
 				</td>
 			</React.Fragment>
 		);
@@ -402,7 +403,7 @@ class DiffViewer extends React.Component<
 				isInCommentRange = rightLineNumber === commentRowLineNumber;
 			}
 		}
-		
+	
 		// 如果当前行在评论范围内，且不是删除或添加的行，添加淡蓝色背景
 		// 删除和添加的行保持原来的红色和绿色背景，但空单元格会单独处理显示淡蓝色
 		const lightBlue = this.props.useDarkTheme ? 'rgba(45, 74, 107, 0.4)' : 'rgba(230, 243, 255, 0.35)';
@@ -410,8 +411,14 @@ class DiffViewer extends React.Component<
 			? { backgroundColor: lightBlue } 
 			: {};
 		
+		const leftLineNumberTemplate = left.lineNumber ? `${LineNumberPrefix.LEFT}-${left.lineNumber}` : undefined;
+		const rightLineNumberTemplate = right.lineNumber ? `${LineNumberPrefix.RIGHT}-${right.lineNumber}` : undefined;
+		
 		return (
-			<tr key={index} className={this.styles.line} style={rowStyle}>
+			<tr 
+				key={index} 
+				className={this.styles.line} 
+				style={rowStyle}>
 				{this.renderLine(
 					left.lineNumber,
 					left.type,
@@ -420,6 +427,8 @@ class DiffViewer extends React.Component<
 					undefined,
 					undefined,
 					isInCommentRange,
+					leftLineNumberTemplate,
+					rightLineNumberTemplate,
 				)}
 				{this.renderLine(
 					right.lineNumber,
@@ -429,6 +438,8 @@ class DiffViewer extends React.Component<
 					undefined,
 					undefined,
 					isInCommentRange,
+					leftLineNumberTemplate,
+					rightLineNumberTemplate,
 				)}
 				{/* 在开始行显示评论框，rowSpan 覆盖从开始行到结束行的整个区域 */}
 				{shouldShowComment && commentRowEndLineNumber !== undefined && (
@@ -439,8 +450,6 @@ class DiffViewer extends React.Component<
 							padding: 0,
 							border: '1px solid rgba(128, 128, 128, 0.2)',
 							borderLeft: '1px solid #d0d7de',
-							width: '33.33%',
-							minWidth: '300px',
 							backgroundColor: 'transparent',
 							position: 'relative',
 						}}
@@ -457,8 +466,6 @@ class DiffViewer extends React.Component<
 							padding: 0,
 							border: '1px solid rgba(128, 128, 128, 0.2)',
 							borderLeft: '1px solid #d0d7de',
-							width: '33.33%',
-							minWidth: '300px',
 							backgroundColor: 'transparent',
 							position: 'relative',
 						}}
@@ -475,8 +482,6 @@ class DiffViewer extends React.Component<
 							padding: 0,
 							border: '1px solid rgba(128, 128, 128, 0.2)',
 							borderLeft: '1px solid #d0d7de',
-							width: '33.33%',
-							minWidth: '300px',
 							backgroundColor: '#f5f5f5',
 							position: 'relative',
 						}}
@@ -627,11 +632,12 @@ class DiffViewer extends React.Component<
 			<tr
 				key={`${leftBlockLineNumber}-${rightBlockLineNumber}`}
 				className={this.styles.codeFold}>
-				{!hideLineNumbers && <td className={this.styles.codeFoldGutter} />}
+				{!hideLineNumbers && <td className={this.styles.codeFoldGutter} style={{ width: '10px', minWidth: '10px', maxWidth: '10px' }} />}
 				<td
 					className={cn({
 						[this.styles.codeFoldGutter]: isUnifiedViewWithoutLineNumbers,
 					})}
+					style={isUnifiedViewWithoutLineNumbers ? { width: '10px', minWidth: '10px', maxWidth: '10px' } : undefined}
 				/>
 
 				{/* Swap columns only for unified view without line numbers */}
@@ -860,7 +866,7 @@ class DiffViewer extends React.Component<
 			throw Error('"oldValue" and "newValue" should be strings');
 		}
 
-		this.styles = this.computeStyles(this.props.styles, useDarkTheme);
+		this.styles = this.computeStyles(this.props.styles, useDarkTheme, this.props.fontSize);
 		const nodes = this.renderDiff();
 		const colSpanOnSplitView = hideLineNumbers ? 2 : 3;
 		const colSpanOnInlineView = hideLineNumbers ? 2 : 4;
@@ -984,11 +990,63 @@ class DiffViewer extends React.Component<
 			</tr>
 		);
 
+		// 计算列宽：在 split view 模式下，如果有 commentRow，需要设置行号、左代码、右代码、comment 的宽度
+		// 三个区域各占33%：左代码区域（行号50px + marker 25px + 内容），右代码区域，comment区域
+		// 总宽度100%，固定宽度列：50px + 25px + 50px + 25px = 150px
+		// 剩余空间 = 100% - 150px，需要被三个33%的列分配
+		// 但我们需要的是：左内容 = 33%, 右内容 = 33%, comment = 33%
+		const colgroup = splitView && !hideLineNumbers ? (
+			<colgroup>
+				{/* 并排模式下，当有 commentRow 时，三个区域各占33% */}
+				{/* 左代码区域总共占33%：行号50px + marker 25px + 内容 */}
+				{/* 左行号 - 固定50px */}
+				<col style={{ width: '50px' }} />
+				{/* 左代码 marker - 固定25px */}
+				<col style={{ width: '25px' }} />
+				{/* 左代码 content - 确保左代码区域总共占33%（有commentRow）或50%（无commentRow） */}
+				<col style={{ width: commentRow ? '33%' : 'calc(50% - 75px)' }} />
+				{/* 右代码区域总共占33%：行号50px + marker 25px + 内容 */}
+				{/* 右行号 - 固定50px */}
+				<col style={{ width: '50px' }} />
+				{/* 右代码 marker - 固定25px */}
+				<col style={{ width: '25px' }} />
+				{/* 右代码 content - 确保右代码区域总共占33%（有commentRow）或50%（无commentRow） */}
+				<col style={{ width: commentRow ? '33%' : 'calc(50% - 75px)' }} />
+				{/* comment 列 - 占33% */}
+				{commentRow && <col style={{ width: '33%' }} />}
+			</colgroup>
+		) : splitView && hideLineNumbers ? (
+			<colgroup>
+				{/* 左代码 marker */}
+				<col style={{ width: '25px' }} />
+				{/* 左代码 content */}
+				<col style={{ width: commentRow ? '33%' : 'calc(50% - 12.5px)' }} />
+				{/* 右代码 marker */}
+				<col style={{ width: '25px' }} />
+				{/* 右代码 content */}
+				<col style={{ width: commentRow ? '33%' : 'calc(50% - 12.5px)' }} />
+				{/* comment 列 */}
+				{commentRow && <col style={{ width: '33%' }} />}
+			</colgroup>
+		) : !splitView && !hideLineNumbers ? (
+			// 行内模式下，不设置 colgroup，让表格自动布局，content 列自适应
+			null
+		) : null;
+
 		return (
 			<table
 				className={cn(this.styles.diffContainer, {
 					[this.styles.splitView]: splitView,
-				})}>
+				})}
+				style={{
+					...(splitView ? { 
+						tableLayout: 'fixed', 
+						width: '100%',
+						// 确保表格宽度是 100%
+					} : {}),
+					...(!splitView && !hideLineNumbers ? { tableLayout: 'auto' } : {}),
+				}}>
+				{colgroup}
 				<tbody>
 					{title}
 					{this.state.isCollapsed ? collapsedMessage : nodes}

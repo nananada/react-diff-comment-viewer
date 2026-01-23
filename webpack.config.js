@@ -22,8 +22,12 @@ module.exports = {
   },
   devServer: {
     contentBase: path.resolve(__dirname, 'examples/dist'),
-    port: 8000,
+    port: 9000,
     hot: true,
+    open: true,
+    compress: true,
+    historyApiFallback: true,
+    publicPath: '/',
   },
   module: {
     rules: [{

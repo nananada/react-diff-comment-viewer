@@ -81,8 +81,20 @@ export interface ReactDiffViewerStylesOverride {
 export default (
 	styleOverride: ReactDiffViewerStylesOverride,
 	useDarkTheme = false,
+	fontSize: string | number | undefined = '14px',
 ): ReactDiffViewerStyles => {
 	const { variables: overrideVariables = {}, ...styles } = styleOverride;
+	
+	// Normalize fontSize: if number, add 'px', otherwise use as is
+	const normalizedFontSize = typeof fontSize === 'number' ? `${fontSize}px` : (fontSize || '14px');
+	
+	// Calculate codeFoldContent fontSize (2px smaller than code font size)
+	const parseFontSize = (size: string): number => {
+		const match = size.match(/(\d+(?:\.\d+)?)/);
+		return match ? parseFloat(match[1]) : 14;
+	};
+	const codeFontSizeNum = parseFontSize(normalizedFontSize);
+	const codeFoldFontSize = `${Math.max(codeFontSizeNum - 2, 8)}px`; // Minimum 8px
 
 	const themeVariables = {
 		light: {
@@ -148,14 +160,15 @@ export default (
 	const variables = useDarkTheme ? themeVariables.dark : themeVariables.light;
 
 	const content = css({
-		width: '100%',
+		// 在并排模式下，宽度由 colgroup 控制，不设置固定宽度
+		verticalAlign: 'middle',
+		textAlign: 'left',
 		label: 'content',
 	});
 
 	const splitView = css({
-		[`.${content}`]: {
-			width: '33.33%',
-		},
+		// 移除对 content 宽度的设置，完全通过 colgroup 来控制列宽
+		// 这样可以确保三个区域（左代码、右代码、评论）各占33.33%
 		label: 'split-view',
 	});
 
@@ -163,25 +176,31 @@ export default (
 		width: '100%',
 		background: variables.diffViewerBackground,
 		fontFamily: "'SF Mono', 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'Courier New', monospace",
+		fontSize: normalizedFontSize,
 		pre: {
 			margin: 0,
 			whiteSpace: 'pre-wrap',
 			lineHeight: '24px',
 			fontFamily: "'SF Mono', 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'Courier New', monospace",
+			fontSize: normalizedFontSize,
+			textAlign: 'left',
 		},
 		label: 'diff-container',
 		borderCollapse: 'collapse',
+		tableLayout: 'fixed', // 固定表格布局，确保列宽不会因内容变化
 	});
 
 	const codeFoldContent = css({
 		color: '#6a737d', // 灰色
 		fontStyle: 'italic', // 斜体
-		fontSize: '12px', // 字号小两号（默认通常是14px或16px，12px是小两号）
+		fontSize: `${codeFoldFontSize} !important`, // 字号比代码行小两号，使用 !important 确保覆盖父元素
 		label: 'code-fold-content',
 	});
 
 	const contentText = css({
 		color: variables.diffViewerColor,
+		margin: 0,
+		textAlign: 'left',
 		label: 'content-text',
 	});
 
@@ -200,6 +219,10 @@ export default (
 
 	const lineNumber = css({
 		color: variables.gutterColor,
+		overflow: 'hidden',
+		textOverflow: 'ellipsis',
+		whiteSpace: 'nowrap',
+		textAlign: ['center', '!important'] as any,
 		label: 'line-number',
 	});
 
@@ -246,13 +269,15 @@ export default (
 
 	const codeFoldGutter = css({
 		backgroundColor: variables.codeFoldGutterBackground,
+		// 在 tableLayout: 'fixed' 模式下，列宽由 colgroup 控制
+		// 在行内视图模式下，通过内联样式设置固定宽度
 		label: 'code-fold-gutter',
 	});
 
 	const codeFold = css({
 		backgroundColor: variables.codeFoldBackground,
 		height: 40,
-		fontSize: 14,
+		fontSize: normalizedFontSize, // Use the same font size as code lines
 		fontWeight: 700,
 		label: 'code-fold',
 		a: {
@@ -270,14 +295,17 @@ export default (
 	});
 
 	const marker = css({
-		width: 25,
-		paddingLeft: 10,
-		paddingRight: 10,
+		// 在 tableLayout: 'fixed' 模式下，列宽由 colgroup 控制，不设置固定宽度
+		// 在行内视图模式下，通过内联样式设置固定宽度
+		padding: '0 2px',
+		overflow: 'visible',
+		textAlign: 'center',
 		userSelect: 'none',
 		label: 'marker',
 		color: variables.gutterColor,
 		pre: {
 			color: `${variables.gutterColor} !important`,
+			textAlign: 'center',
 		},
 		[`&.${diffAdded}`]: {
 			color: variables.addedGutterColor,
@@ -307,21 +335,26 @@ export default (
 
 	const gutter = css({
 		userSelect: 'none',
-		minWidth: 50,
-		padding: '0 10px',
+		// 在 tableLayout: 'fixed' 模式下，列宽由 colgroup 控制，不设置固定宽度
+		// 在行内视图模式下，通过内联样式设置固定宽度
+		padding: '0 2px',
+		overflow: 'hidden',
+		textOverflow: 'ellipsis',
+		whiteSpace: 'nowrap',
 		label: 'gutter',
-		textAlign: 'right',
+		textAlign: 'center',
+		verticalAlign: 'middle',
 		background: variables.gutterBackground,
 		borderRight: useDarkTheme ? '1px solid #30363d' : '1px solid #d1d9e0',
 		'&:hover': {
 			cursor: 'pointer',
-			background: variables.gutterBackgroundDark,
 			pre: {
 				opacity: 1,
 			},
 		},
 		pre: {
 			opacity: 0.5,
+			textAlign: ['center', '!important'] as any,
 		},
 		[`&.${diffAdded}`]: {
 			background: variables.addedGutterBackground,
@@ -348,7 +381,7 @@ export default (
 	});
 
 	const line = css({
-		verticalAlign: 'baseline',
+		verticalAlign: 'middle',
 		label: 'line',
 	});
 

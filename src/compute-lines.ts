@@ -20,7 +20,7 @@ export enum DiffMethod {
 }
 
 export interface DiffInformation {
-	value?: string | DiffInformation[];
+	value?: string;
 	lineNumber?: number;
 	type?: DiffType;
 }
@@ -33,19 +33,6 @@ export interface LineInformation {
 export interface ComputedLineInformation {
 	lineInformation: LineInformation[];
 	diffLines: number[];
-}
-
-export interface ComputedDiffInformation {
-	left?: DiffInformation[];
-	right?: DiffInformation[];
-}
-
-// See https://github.com/kpdecker/jsdiff/tree/v4.0.1#change-objects for more info on JsDiff
-// Change Objects
-export interface JsDiffChangeObject {
-	added?: boolean;
-	removed?: boolean;
-	value?: string;
 }
 
 /**
@@ -80,52 +67,6 @@ const constructLines = (value: string): string[] => {
 };
 
 /**
- * Computes word diff information in the line.
- * [TODO]: Consider adding options argument for JsDiff text block comparison
- *
- * @param oldValue Old word in the line.
- * @param newValue New word in the line.
- * @param compareMethod JsDiff text diff method from https://github.com/kpdecker/jsdiff/tree/v4.0.1#api
- */
-const computeDiff = (
-	oldValue: string,
-	newValue: string,
-	compareMethod: string = DiffMethod.CHARS,
-): ComputedDiffInformation => {
-	const diffArray: JsDiffChangeObject[] = jsDiff[compareMethod](
-		oldValue,
-		newValue,
-	);
-	const computedDiff: ComputedDiffInformation = {
-		left: [],
-		right: [],
-	};
-	diffArray.forEach(
-		({ added, removed, value }): DiffInformation => {
-			const diffInformation: DiffInformation = {};
-			if (added) {
-				diffInformation.type = DiffType.ADDED;
-				diffInformation.value = value;
-				computedDiff.right.push(diffInformation);
-			}
-			if (removed) {
-				diffInformation.type = DiffType.REMOVED;
-				diffInformation.value = value;
-				computedDiff.left.push(diffInformation);
-			}
-			if (!removed && !added) {
-				diffInformation.type = DiffType.DEFAULT;
-				diffInformation.value = value;
-				computedDiff.right.push(diffInformation);
-				computedDiff.left.push(diffInformation);
-			}
-			return diffInformation;
-		},
-	);
-	return computedDiff;
-};
-
-/**
  * [TODO]: Think about moving common left and right value assignment to a
  * common place. Better readability?
  *
@@ -135,8 +76,8 @@ const computeDiff = (
  *
  * @param oldString Old string to compare.
  * @param newString New string to compare with old string.
- * @param disableWordDiff Flag to enable/disable word diff.
- * @param compareMethod JsDiff text diff method from https://github.com/kpdecker/jsdiff/tree/v4.0.1#api
+ * @param disableWordDiff Flag to enable/disable word diff (deprecated, no longer used).
+ * @param compareMethod JsDiff text diff method (deprecated, no longer used).
  * @param linesOffset line number to start counting from
  */
 const computeLineInformation = (
@@ -215,19 +156,9 @@ const computeLineInformation = (
 									ignoreDiffIndexes.push(`${diffIndex + 1}-${lineIndex}`);
 									right.lineNumber = lineNumber;
 									right.type = type;
-									// Do word level diff and assign the corresponding values to the
-									// left and right diff information object.
-									if (disableWordDiff) {
-										right.value = rightValue;
-									} else {
-										const computedDiff = computeDiff(
-											line,
-											rightValue as string,
-											compareMethod,
-										);
-										right.value = computedDiff.right;
-										left.value = computedDiff.left;
-									}
+									// Assign the corresponding values to the left and right diff information object.
+									right.value = rightValue as string;
+									left.value = line || ' ';
 								}
 							}
 						} else {
