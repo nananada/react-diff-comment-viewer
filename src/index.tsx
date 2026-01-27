@@ -618,7 +618,7 @@ class DiffViewer extends React.Component<
 				rightBlockLineNumber,
 			)
 		) : (
-			<pre className={this.styles.codeFoldContent}>Expand {num} lines ...</pre>
+			<pre className={this.styles.codeFoldContent}>展开剩下 {num} 行...</pre>
 		);
 		const content = (
 			<td>
@@ -686,19 +686,71 @@ class DiffViewer extends React.Component<
 		let actualRenderedIndex = 0;
 		
 		// 判断是否在评论范围内（基于 new code 的行号 right.lineNumber）
-		const isInCommentRange = (line: LineInformation): boolean => {
+		// 问题：删除的行没有 right.lineNumber，会被误判为不在范围内
+		// 解决方案：如果一行是删除的行，检查它是否应该和评论范围内的行一起显示
+		// 策略：删除的行如果紧邻评论范围内的行（在同一行信息对象中，或者前后相邻），也应该显示
+		const isInCommentRange = (line: LineInformation, lineIndex?: number, allLines?: LineInformation[]): boolean => {
 			if (commentRowLineNumber === undefined) {
 				return false;
 			}
-			// 如果 right.lineNumber 不存在，说明这是删除的行，在 new code 中没有行号，不应该算进行号里
+			
+			// 优先使用 right.lineNumber（新代码的行号）
+			if (line.right && line.right.lineNumber !== undefined && line.right.lineNumber !== null) {
+				const rightLineNumber = line.right.lineNumber;
+				if (commentRowEndLineNumber !== undefined) {
+					if (rightLineNumber >= commentRowLineNumber && rightLineNumber <= commentRowEndLineNumber) {
+						return true;
+					}
+				} else {
+					if (rightLineNumber === commentRowLineNumber) {
+						return true;
+					}
+				}
+			}
+			
+			// 如果 right.lineNumber 不存在（删除的行），需要特殊处理
+			// 删除的行应该和评论范围内的行一起显示，如果它们在同一行信息对象中或相邻
 			if (!line.right || line.right.lineNumber === undefined || line.right.lineNumber === null) {
+				// 这是删除的行，检查前后行是否在评论范围内
+				// 如果前后行在评论范围内，这行也应该显示
+				if (lineIndex !== undefined && allLines !== undefined) {
+					// 检查前一行
+					if (lineIndex > 0) {
+						const prevLine = allLines[lineIndex - 1];
+						if (prevLine.right && prevLine.right.lineNumber !== undefined && prevLine.right.lineNumber !== null) {
+							const prevRightLineNumber = prevLine.right.lineNumber;
+							if (commentRowEndLineNumber !== undefined) {
+								if (prevRightLineNumber >= commentRowLineNumber && prevRightLineNumber <= commentRowEndLineNumber) {
+									return true;
+								}
+							} else {
+								if (prevRightLineNumber === commentRowLineNumber) {
+									return true;
+								}
+							}
+						}
+					}
+					// 检查后一行
+					if (lineIndex < allLines.length - 1) {
+						const nextLine = allLines[lineIndex + 1];
+						if (nextLine.right && nextLine.right.lineNumber !== undefined && nextLine.right.lineNumber !== null) {
+							const nextRightLineNumber = nextLine.right.lineNumber;
+							if (commentRowEndLineNumber !== undefined) {
+								if (nextRightLineNumber >= commentRowLineNumber && nextRightLineNumber <= commentRowEndLineNumber) {
+									return true;
+								}
+							} else {
+								if (nextRightLineNumber === commentRowLineNumber) {
+									return true;
+								}
+							}
+						}
+					}
+				}
 				return false;
 			}
-			const rightLineNumber = line.right.lineNumber;
-			if (commentRowEndLineNumber !== undefined) {
-				return rightLineNumber >= commentRowLineNumber && rightLineNumber <= commentRowEndLineNumber;
-			}
-			return rightLineNumber === commentRowLineNumber;
+			
+			return false;
 		};
 		
 		// 新的折叠逻辑：基于 commentRowLineNumber 和 commentRowEndLineNumber
@@ -722,7 +774,7 @@ class DiffViewer extends React.Component<
 		
 		lineInformation.forEach(
 			(line: LineInformation, i: number): void => {
-					const inRange = isInCommentRange(line);
+					const inRange = isInCommentRange(line, i, lineInformation);
 					
 					// 如果当前行不在评论范围内
 					if (!inRange) {
