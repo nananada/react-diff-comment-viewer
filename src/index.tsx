@@ -77,8 +77,10 @@ export interface ReactDiffViewerProps {
 }
 
 export interface ReactDiffViewerState {
-	// Array holding the expanded code folding.
+	// Array holding the expanded code folding (fully expanded block IDs, for backward compatibility).
 	expandedBlocks?: number[];
+	// Record of blockId -> number of lines expanded (for progressive expand: 10 lines per click)
+	expandedBlocksCount?: Record<number, number>;
 	// Whether the entire diff is collapsed
 	isCollapsed?: boolean;
 }
@@ -129,6 +131,7 @@ class DiffViewer extends React.Component<
 
 		this.state = {
 			expandedBlocks: [],
+			expandedBlocksCount: {},
 			isCollapsed: false,
 		};
 	}
@@ -138,9 +141,10 @@ class DiffViewer extends React.Component<
 	 * refs.
 	 */
 	public resetCodeBlocks = (): boolean => {
-		if (this.state.expandedBlocks.length > 0) {
+		if (this.state.expandedBlocks.length > 0 || Object.keys(this.state.expandedBlocksCount || {}).length > 0) {
 			this.setState({
 				expandedBlocks: [],
+				expandedBlocksCount: {},
 			});
 			return true;
 		}
@@ -172,16 +176,26 @@ class DiffViewer extends React.Component<
 		}
 	};
 
+	/** 每次展开 10 行，而非全部展开 */
+	private readonly LINES_PER_EXPAND = 10;
+
 	/**
-	 * Pushes the target expanded code block to the state. During the re-render,
-	 * this value is used to expand/fold unmodified code.
+	 * 逐步展开折叠块，每次展开 10 行。
+	 * @param id 折叠块 ID
+	 * @param totalLines 折叠块总行数
 	 */
-	private onBlockExpand = (id: number): void => {
-		const prevState = this.state.expandedBlocks.slice();
-		prevState.push(id);
+	private onBlockExpand = (id: number, totalLines: number): void => {
+		const expandedBlocksCount = this.state.expandedBlocksCount || {};
+		const current = expandedBlocksCount[id] || 0;
+		const toAdd = Math.min(this.LINES_PER_EXPAND, totalLines - current);
+
+		if (toAdd <= 0) return;
 
 		this.setState({
-			expandedBlocks: prevState,
+			expandedBlocksCount: {
+				...expandedBlocksCount,
+				[id]: current + toAdd,
+			},
 		});
 	};
 
@@ -258,8 +272,8 @@ class DiffViewer extends React.Component<
 
 		// 如果当前行在评论范围内，且不是添加或删除的行，行号背景使用淡蓝色
 		// 添加和删除的行号保持原来的绿色和红色背景
-		const lightBlue = this.props.useDarkTheme ? 'rgba(45, 74, 107, 0.3)' : 'rgba(230, 243, 255, 0.35)';
-		const darkerLightBlue = this.props.useDarkTheme ? 'rgba(30, 74, 107, 0.4)' : 'rgba(204, 229, 255, 0.45)';
+		const lightBlue = this.props.useDarkTheme ? 'rgba(45, 74, 107, 0.75)' : 'rgba(140, 180, 220, 0.85)';
+		const darkerLightBlue = this.props.useDarkTheme ? 'rgba(30, 55, 90, 0.85)' : 'rgba(110, 160, 210, 0.9)';
 		
 		// 如果当前单元格是空单元格且在评论范围内，行号背景使用稍微深一点的淡蓝色
 		// 如果当前单元格不是空单元格且在评论范围内，行号背景使用淡蓝色
@@ -372,44 +386,45 @@ class DiffViewer extends React.Component<
 		actualRenderedIndex?: number,
 		totalLines?: number,
 		commentRangeRowSpan?: number,
+		isFirstRowInCommentRange?: boolean,
+		overrideIsInCommentRange?: boolean,
 	): JSX.Element => {
 		const { commentRow, commentRowLineNumber, commentRowEndLineNumber, showDiffOnly } = this.props;
-		// 并排模式：如果指定了开始行和结束行，评论框显示在中间位置；否则显示在指定行
-		// commentRowLineNumber 和 commentRowEndLineNumber 对应的是 new code 的行号（right.lineNumber）
+		// 并排模式：评论框显示在评论范围的第一行（包含相邻的删除行，确保与代码区深蓝色对齐）
 		let shouldShowComment = false;
 		let isInCommentRange = false;
 		let isStartOfCommentRange = false;
-		// 使用传入的 commentRangeRowSpan（在 renderDiff 中已计算）
-		// 如果没有传入，则使用简单的计算作为后备
+		// 使用传入的 commentRangeRowSpan（在 renderDiff 中已计算，包含所有 isInCommentRange 行）
 		let finalCommentRangeRowSpan = commentRangeRowSpan;
 		if (finalCommentRangeRowSpan === undefined && commentRowEndLineNumber !== undefined && commentRowLineNumber !== undefined) {
 			finalCommentRangeRowSpan = commentRowEndLineNumber - commentRowLineNumber + 1;
 		}
 		
-		if (commentRow && commentRowLineNumber !== undefined && right && right.lineNumber !== undefined && right.lineNumber !== null) {
-			const rightLineNumber = right.lineNumber;
+		if (commentRow && commentRowLineNumber !== undefined) {
+			// 优先用传入的 overrideIsInCommentRange（用于删除行等无 right 的情况）
+			const hasRightInRange = right && right.lineNumber !== undefined && right.lineNumber !== null
+				&& (commentRowEndLineNumber === undefined
+					? right.lineNumber === commentRowLineNumber
+					: right.lineNumber >= commentRowLineNumber && right.lineNumber <= commentRowEndLineNumber);
+			isInCommentRange = overrideIsInCommentRange === true || hasRightInRange;
 			if (commentRowEndLineNumber !== undefined) {
-				// 有开始行和结束行：在开始行显示评论框，rowSpan 覆盖整个区间
-				// 基于 new code 的行号 right.lineNumber 来判断
-				shouldShowComment = rightLineNumber === commentRowLineNumber;
-				// 判断当前行是否在开始行和结束行之间
-				isInCommentRange = rightLineNumber >= commentRowLineNumber && rightLineNumber <= commentRowEndLineNumber;
-				// 判断是否是开始行
-				isStartOfCommentRange = rightLineNumber === commentRowLineNumber;
+				// 在第一行 isInCommentRange 的行显示评论框，保证与代码区深蓝色起始对齐
+				shouldShowComment = isFirstRowInCommentRange === true;
+				isStartOfCommentRange = shouldShowComment;
 			} else {
-				// 只有开始行：显示在开始行
-				shouldShowComment = rightLineNumber === commentRowLineNumber;
-				// 判断当前行是否在开始行
-				isInCommentRange = rightLineNumber === commentRowLineNumber;
+				shouldShowComment = (hasRightInRange && right!.lineNumber === commentRowLineNumber) || isFirstRowInCommentRange === true;
+				isStartOfCommentRange = shouldShowComment;
 			}
 		}
 	
 		// 如果当前行在评论范围内，且不是删除或添加的行，添加淡蓝色背景
 		// 删除和添加的行保持原来的红色和绿色背景，但空单元格会单独处理显示淡蓝色
-		const lightBlue = this.props.useDarkTheme ? 'rgba(45, 74, 107, 0.4)' : 'rgba(230, 243, 255, 0.35)';
+		const lightBlue = this.props.useDarkTheme ? 'rgba(45, 74, 107, 0.75)' : 'rgba(140, 180, 220, 0.85)';
 		const rowStyle = (isInCommentRange && left.type !== DiffType.REMOVED && right.type !== DiffType.ADDED) 
 			? { backgroundColor: lightBlue } 
 			: {};
+		// 评论 td 跨多行时需单独设置背景色，否则会遮挡下方行的 row 背景
+		const commentTdBg = isInCommentRange ? lightBlue : 'transparent';
 		
 		const leftLineNumberTemplate = left.lineNumber ? `${LineNumberPrefix.LEFT}-${left.lineNumber}` : undefined;
 		const rightLineNumberTemplate = right.lineNumber ? `${LineNumberPrefix.RIGHT}-${right.lineNumber}` : undefined;
@@ -450,7 +465,7 @@ class DiffViewer extends React.Component<
 							padding: 0,
 							border: '1px solid rgba(128, 128, 128, 0.2)',
 							borderLeft: '1px solid #d0d7de',
-							backgroundColor: 'transparent',
+							backgroundColor: commentTdBg,
 							position: 'relative',
 						}}
 						rowSpan={finalCommentRangeRowSpan}>
@@ -466,7 +481,7 @@ class DiffViewer extends React.Component<
 							padding: 0,
 							border: '1px solid rgba(128, 128, 128, 0.2)',
 							borderLeft: '1px solid #d0d7de',
-							backgroundColor: 'transparent',
+							backgroundColor: commentTdBg,
 							position: 'relative',
 						}}
 						rowSpan={totalLines || 10000}>
@@ -588,12 +603,10 @@ class DiffViewer extends React.Component<
 	};
 
 	/**
-	 * Returns a function with clicked block number in the closure.
-	 *
-	 * @param id Cold fold block id.
+	 * Returns a function with clicked block number and total lines in the closure.
 	 */
-	private onBlockClickProxy = (id: number): any => (): void =>
-		this.onBlockExpand(id);
+	private onBlockClickProxy = (id: number, totalLines: number): any => (): void =>
+		this.onBlockExpand(id, totalLines);
 
 	/**
 	 * Generates cold fold block. It also uses the custom message renderer when available to show
@@ -605,24 +618,53 @@ class DiffViewer extends React.Component<
 	 * @param rightBlockLineNumber First right line number after the current code fold block.
 	 */
 	private renderSkippedLineIndicator = (
-		num: number,
+		remainingNum: number,
 		blockNumber: number,
 		leftBlockLineNumber: number,
 		rightBlockLineNumber: number,
+		totalLines: number,
 	): JSX.Element => {
-		const { hideLineNumbers, splitView } = this.props;
+		const { hideLineNumbers, splitView, commentRow } = this.props;
 		const message = this.props.codeFoldMessageRenderer ? (
 			this.props.codeFoldMessageRenderer(
-				num,
+				remainingNum,
 				leftBlockLineNumber,
 				rightBlockLineNumber,
 			)
 		) : (
-			<pre className={this.styles.codeFoldContent}>展开剩下 {num} 行...</pre>
+			<pre className={this.styles.codeFoldContent}>展开剩下 {remainingNum} 行...</pre>
 		);
+		
+		if (splitView) {
+			// 并排视图：深灰色仅应用在行号列（50px），与下方行号列等宽
+			const gutterWidth = { width: '50px', minWidth: '50px', maxWidth: '50px' };
+			const markerWidth = { width: '25px', minWidth: '25px', maxWidth: '25px' };
+			return (
+				<tr
+					key={`fold-${blockNumber}-${leftBlockLineNumber}-${rightBlockLineNumber}-${remainingNum}`}
+					className={this.styles.codeFold}>
+					{/* 左侧区域：仅行号列用 codeFoldGutter 深灰，marker 列用行背景色 */}
+					{!hideLineNumbers && <td className={this.styles.codeFoldGutter} style={gutterWidth} />}
+					<td style={markerWidth} />
+					<td style={{ textAlign: 'left', paddingLeft: '14px' }}>
+						<a onClick={this.onBlockClickProxy(blockNumber, totalLines)} tabIndex={0}>
+							{message}
+						</a>
+					</td>
+					{/* 右侧区域 */}
+					{!hideLineNumbers && <td className={this.styles.codeFoldGutter} style={gutterWidth} />}
+					<td style={markerWidth} />
+					<td />
+					{/* 评论区域（如果有） */}
+					{commentRow && <td />}
+				</tr>
+			);
+		}
+		
+		// 行内视图：保持原有逻辑
 		const content = (
 			<td>
-				<a onClick={this.onBlockClickProxy(blockNumber)} tabIndex={0}>
+				<a onClick={this.onBlockClickProxy(blockNumber, totalLines)} tabIndex={0}>
 					{message}
 				</a>
 			</td>
@@ -630,7 +672,7 @@ class DiffViewer extends React.Component<
 		const isUnifiedViewWithoutLineNumbers = !splitView && !hideLineNumbers;
 		return (
 			<tr
-				key={`${leftBlockLineNumber}-${rightBlockLineNumber}`}
+				key={`fold-${blockNumber}-${leftBlockLineNumber}-${rightBlockLineNumber}-${remainingNum}`}
 				className={this.styles.codeFold}>
 				{!hideLineNumbers && <td className={this.styles.codeFoldGutter} style={{ width: '10px', minWidth: '10px', maxWidth: '10px' }} />}
 				<td
@@ -652,9 +694,6 @@ class DiffViewer extends React.Component<
 						<td />
 					</React.Fragment>
 				)}
-
-				<td />
-				<td />
 			</tr>
 		);
 	};
@@ -754,14 +793,15 @@ class DiffViewer extends React.Component<
 		};
 		
 		// 新的折叠逻辑：基于 commentRowLineNumber 和 commentRowEndLineNumber
-		// 计算并排模式下的 commentRangeRowSpan（统计实际在范围内的行数）
+		// 计算并排模式下的 commentRangeRowSpan（统计实际在范围内的行数，包含相邻的删除行）
 		let commentRangeRowSpan = 0;
+		let firstCommentRangeIndex: number | null = null;
 		if (commentRowLineNumber !== undefined && commentRowEndLineNumber !== undefined && splitView) {
-			lineInformation.forEach((line: LineInformation) => {
-				if (line.right && line.right.lineNumber !== undefined && line.right.lineNumber !== null) {
-					const rightLineNumber = line.right.lineNumber;
-					if (rightLineNumber >= commentRowLineNumber && rightLineNumber <= commentRowEndLineNumber) {
-						commentRangeRowSpan++;
+			lineInformation.forEach((line: LineInformation, i: number) => {
+				if (isInCommentRange(line, i, lineInformation)) {
+					commentRangeRowSpan++;
+					if (firstCommentRangeIndex === null) {
+						firstCommentRangeIndex = i;
 					}
 				}
 			});
@@ -771,6 +811,7 @@ class DiffViewer extends React.Component<
 			let currentFoldBlockStart: number | null = null;
 			let currentFoldBlockLines: number[] = [];
 			let foldBlockId = 0;
+			let hasSeenCommentRange = false;
 		
 		lineInformation.forEach(
 			(line: LineInformation, i: number): void => {
@@ -791,22 +832,77 @@ class DiffViewer extends React.Component<
 						const nextLineInRange = !isLastLine && isInCommentRange(lineInformation[i + 1]);
 						
 						if (isLastLine || nextLineInRange) {
-							// 检查该折叠块是否已展开
-							const isExpanded = this.state.expandedBlocks.includes(foldBlockId);
-							
-							if (!isExpanded && currentFoldBlockLines.length > 0) {
-								// 显示折叠指示器
-								const firstLine = lineInformation[currentFoldBlockStart!];
-								const lastLine = lineInformation[currentFoldBlockLines[currentFoldBlockLines.length - 1]];
-							actualRenderedIndex++;
-							result.push(this.renderSkippedLineIndicator(
-									currentFoldBlockLines.length,
-									foldBlockId,
-									firstLine.left.lineNumber,
-									lastLine.right.lineNumber,
-							));
-							} else if (isExpanded) {
-								// 显示所有折叠的行
+							const totalLines = currentFoldBlockLines.length;
+							const expandedCount = (this.state.expandedBlocksCount && this.state.expandedBlocksCount[foldBlockId]) || 0;
+							const isFullyExpanded = expandedCount >= totalLines || (this.state.expandedBlocks && this.state.expandedBlocks.includes(foldBlockId));
+							// 块在评论范围上方：nextLineInRange；块在评论范围下方：isLastLine 且 hasSeenCommentRange
+							const isBlockAboveCommentRange = nextLineInRange;
+
+							if (!isFullyExpanded && totalLines > 0) {
+								if (expandedCount === 0) {
+									// 完全折叠：只显示折叠指示器
+									const firstLine = lineInformation[currentFoldBlockStart!];
+									const lastLine = lineInformation[currentFoldBlockLines[currentFoldBlockLines.length - 1]];
+									actualRenderedIndex++;
+									result.push(this.renderSkippedLineIndicator(
+										totalLines,
+										foldBlockId,
+										firstLine.left.lineNumber,
+										(lastLine.right && lastLine.right.lineNumber != null ? lastLine.right.lineNumber : lastLine.left.lineNumber),
+										totalLines,
+									));
+								} else {
+									// 上方块：slice(-N) 展开底部；下方块：slice(0,N) 展开顶部
+									const linesToShow = isBlockAboveCommentRange
+										? currentFoldBlockLines.slice(-expandedCount) // 块在上方：展开底部N行（10-20）
+										: currentFoldBlockLines.slice(0, expandedCount); // 块在下方：展开顶部N行（30-40）
+									const remaining = totalLines - expandedCount;
+									const remainingIndices = isBlockAboveCommentRange
+										? currentFoldBlockLines.slice(0, remaining) // 块在上方：剩余在顶部
+										: currentFoldBlockLines.slice(expandedCount); // 块在下方：剩余在底部
+									const remainingFirstLine = lineInformation[remainingIndices[0]];
+									const remainingLastLine = lineInformation[remainingIndices[remainingIndices.length - 1]];
+
+									if (isBlockAboveCommentRange) {
+										// 上方块：「展开剩下 n 行」在展开区最上面（记录上面还折叠了多少行）
+										actualRenderedIndex++;
+										result.push(this.renderSkippedLineIndicator(
+											remaining,
+											foldBlockId,
+											remainingFirstLine.left.lineNumber,
+											(remainingLastLine.right && remainingLastLine.right.lineNumber != null ? remainingLastLine.right.lineNumber : remainingLastLine.left.lineNumber),
+											totalLines,
+										));
+										linesToShow.forEach((foldLineIndex) => {
+											const foldLine = lineInformation[foldLineIndex];
+											const diffNodes = splitView
+												? this.renderSplitView(foldLine, foldLineIndex, actualRenderedIndex, lineInformation.length, commentRangeRowSpan)
+												: this.renderInlineView(foldLine, foldLineIndex);
+											actualRenderedIndex++;
+											result.push(diffNodes);
+										});
+									} else {
+										// 下方块：「展开剩下 n 行」在展开区最下面（记录下面还折叠了多少行）
+										linesToShow.forEach((foldLineIndex) => {
+											const foldLine = lineInformation[foldLineIndex];
+											const diffNodes = splitView
+												? this.renderSplitView(foldLine, foldLineIndex, actualRenderedIndex, lineInformation.length, commentRangeRowSpan)
+												: this.renderInlineView(foldLine, foldLineIndex);
+											actualRenderedIndex++;
+											result.push(diffNodes);
+										});
+										actualRenderedIndex++;
+										result.push(this.renderSkippedLineIndicator(
+											remaining,
+											foldBlockId,
+											remainingFirstLine.left.lineNumber,
+											(remainingLastLine.right && remainingLastLine.right.lineNumber != null ? remainingLastLine.right.lineNumber : remainingLastLine.left.lineNumber),
+											totalLines,
+										));
+									}
+								}
+							} else if (isFullyExpanded) {
+								// 完全展开：显示所有行
 								currentFoldBlockLines.forEach((foldLineIndex) => {
 									const foldLine = lineInformation[foldLineIndex];
 									const diffNodes = splitView
@@ -821,25 +917,54 @@ class DiffViewer extends React.Component<
 							currentFoldBlockStart = null;
 							currentFoldBlockLines = [];
 						} else {
-							// 继续收集折叠行，不渲染
-							result.push(null);
+							// 继续收集折叠行，不渲染（不 push null，避免影响「展开剩下」位置）
 						}
 					} else {
+						hasSeenCommentRange = true;
 						// 当前行在评论范围内，直接显示
 						// 如果之前有折叠块，先结束它
 						if (currentFoldBlockStart !== null && currentFoldBlockLines.length > 0) {
-							const isExpanded = this.state.expandedBlocks.includes(foldBlockId);
-							if (!isExpanded) {
-								const firstLine = lineInformation[currentFoldBlockStart];
-								const lastLine = lineInformation[currentFoldBlockLines[currentFoldBlockLines.length - 1]];
-								actualRenderedIndex++;
-								result.push(this.renderSkippedLineIndicator(
-									currentFoldBlockLines.length,
-									foldBlockId,
-									firstLine.left.lineNumber,
-									lastLine.right.lineNumber,
-								));
-							} else {
+							const totalLines = currentFoldBlockLines.length;
+							const expandedCount = (this.state.expandedBlocksCount && this.state.expandedBlocksCount[foldBlockId]) || 0;
+							const isFullyExpanded = expandedCount >= totalLines || (this.state.expandedBlocks && this.state.expandedBlocks.includes(foldBlockId));
+
+							if (!isFullyExpanded && totalLines > 0) {
+								if (expandedCount === 0) {
+									const firstLine = lineInformation[currentFoldBlockStart];
+									const lastLine = lineInformation[currentFoldBlockLines[currentFoldBlockLines.length - 1]];
+									actualRenderedIndex++;
+									result.push(this.renderSkippedLineIndicator(
+										totalLines,
+										foldBlockId,
+										firstLine.left.lineNumber,
+										(lastLine.right && lastLine.right.lineNumber != null ? lastLine.right.lineNumber : lastLine.left.lineNumber),
+										totalLines,
+									));
+								} else {
+									// 进入评论范围，说明块在评论范围上方，「展开剩下 n 行」在展开区最上面
+									const linesToShow = currentFoldBlockLines.slice(-expandedCount);
+									const remaining = totalLines - expandedCount;
+									const remainingIndices = currentFoldBlockLines.slice(0, remaining);
+									const remainingFirstLine = lineInformation[remainingIndices[0]];
+									const remainingLastLine = lineInformation[remainingIndices[remainingIndices.length - 1]];
+									actualRenderedIndex++;
+									result.push(this.renderSkippedLineIndicator(
+										remaining,
+										foldBlockId,
+										remainingFirstLine.left.lineNumber,
+										(remainingLastLine.right && remainingLastLine.right.lineNumber != null ? remainingLastLine.right.lineNumber : remainingLastLine.left.lineNumber),
+										totalLines,
+									));
+									linesToShow.forEach((foldLineIndex) => {
+										const foldLine = lineInformation[foldLineIndex];
+										const diffNodes = splitView
+											? this.renderSplitView(foldLine, foldLineIndex, actualRenderedIndex, lineInformation.length, commentRangeRowSpan)
+											: this.renderInlineView(foldLine, foldLineIndex);
+										actualRenderedIndex++;
+										result.push(diffNodes);
+									});
+								}
+							} else if (isFullyExpanded) {
 								currentFoldBlockLines.forEach((foldLineIndex) => {
 									const foldLine = lineInformation[foldLineIndex];
 									const diffNodes = splitView
@@ -855,7 +980,7 @@ class DiffViewer extends React.Component<
 						
 						// 渲染当前行
 				const diffNodes = splitView
-					? this.renderSplitView(line, i, actualRenderedIndex, lineInformation.length, commentRangeRowSpan)
+					? this.renderSplitView(line, i, actualRenderedIndex, lineInformation.length, commentRangeRowSpan, i === firstCommentRangeIndex, true)
 					: this.renderInlineView(line, i);
 				actualRenderedIndex++;
 					result.push(diffNodes);
