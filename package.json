@@ -1,6 +1,6 @@
 {
-	"name": "react-diff-comment-viewer",
-	"version": "3.1.9",
+	"name": "@lllhaha/react-diff-comment-viewer",
+	"version": "3.1.10",
 	"private": false,
 	"description": "A simple and beautiful text diff viewer component with comment box support made with diff and React",
 	"keywords": [
@@ -17,7 +17,10 @@
 	],
 	"repository": {
 		"type": "git",
-		"url": "git+ssh://git@github.com:nananada/react-diff-comment-viewer.git"
+		"url": "https://github.com/lllhaha/react-diff-comment-viewer.git"
+	},
+	"publishConfig": {
+		"registry": "https://registry.npmjs.org"
 	},
 	"license": "MIT",
 	"author": "Pranesh Ravi<praneshpranesh@gmail.com>",
