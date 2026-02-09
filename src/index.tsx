@@ -270,20 +270,14 @@ class DiffViewer extends React.Component<
 			content = value;
 		}
 
-		// 如果当前行在评论范围内，且不是添加或删除的行，行号背景使用淡蓝色
-		// 添加和删除的行号保持原来的绿色和红色背景
+		// 评论范围内只展示深蓝色，不展示红/绿 diff 背景
 		const lightBlue = this.props.useDarkTheme ? 'rgba(45, 74, 107, 0.75)' : 'rgba(140, 180, 220, 0.85)';
 		const darkerLightBlue = this.props.useDarkTheme ? 'rgba(30, 55, 90, 0.85)' : 'rgba(110, 160, 210, 0.9)';
-		
-		// 如果当前单元格是空单元格且在评论范围内，行号背景使用稍微深一点的淡蓝色
-		// 如果当前单元格不是空单元格且在评论范围内，行号背景使用淡蓝色
-		// 添加和删除的行号保持原来的绿色和红色背景
-		const gutterStyle = (isInCommentRange && !added && !removed) 
-			? { backgroundColor: !content ? darkerLightBlue : lightBlue } 
+		const gutterStyle = isInCommentRange
+			? { backgroundColor: !content ? darkerLightBlue : lightBlue }
 			: {};
-		
-		// 如果当前行在评论范围内，且是空单元格（删除行的右侧或添加行的左侧），显示稍微深一点的淡蓝色背景
-		const emptyCellStyle = (isInCommentRange && !content) ? { backgroundColor: darkerLightBlue } : {};
+		const emptyCellStyle = isInCommentRange ? { backgroundColor: !content ? darkerLightBlue : lightBlue } : {};
+		const noDiffInCommentRange = isInCommentRange; // 评论区间内不应用红/绿 diff 样式
 
 		// 在并排视图中，列宽由 colgroup 控制，不设置内联宽度样式
 		// 在行内视图中，保持固定宽度以确保布局稳定
@@ -308,8 +302,8 @@ class DiffViewer extends React.Component<
 						}
 						className={cn(this.styles.gutter, {
 							[this.styles.emptyGutter]: !lineNumber,
-							[this.styles.diffAdded]: added,
-							[this.styles.diffRemoved]: removed,
+							[this.styles.diffAdded]: added && !noDiffInCommentRange,
+							[this.styles.diffRemoved]: removed && !noDiffInCommentRange,
 							[this.styles.highlightedGutter]: highlightLine,
 						})}
 						style={{
@@ -327,8 +321,8 @@ class DiffViewer extends React.Component<
 						}
 						className={cn(this.styles.gutter, {
 							[this.styles.emptyGutter]: !additionalLineNumber,
-							[this.styles.diffAdded]: added,
-							[this.styles.diffRemoved]: removed,
+							[this.styles.diffAdded]: added && !noDiffInCommentRange,
+							[this.styles.diffRemoved]: removed && !noDiffInCommentRange,
 							[this.styles.highlightedGutter]: highlightLine,
 						})}
 						style={{
@@ -343,8 +337,8 @@ class DiffViewer extends React.Component<
 				<td
 					className={cn(this.styles.marker, {
 						[this.styles.emptyLine]: !content,
-						[this.styles.diffAdded]: added,
-						[this.styles.diffRemoved]: removed,
+						[this.styles.diffAdded]: added && !noDiffInCommentRange,
+						[this.styles.diffRemoved]: removed && !noDiffInCommentRange,
 					})}
 					style={{
 						...emptyCellStyle,
@@ -358,8 +352,8 @@ class DiffViewer extends React.Component<
 				<td
 					className={cn(this.styles.content, {
 						[this.styles.emptyLine]: !content,
-						[this.styles.diffAdded]: added,
-						[this.styles.diffRemoved]: removed,
+						[this.styles.diffAdded]: added && !noDiffInCommentRange,
+						[this.styles.diffRemoved]: removed && !noDiffInCommentRange,
 					})}
 					style={{
 						...emptyCellStyle,
@@ -417,12 +411,9 @@ class DiffViewer extends React.Component<
 			}
 		}
 	
-		// 如果当前行在评论范围内，且不是删除或添加的行，添加淡蓝色背景
-		// 删除和添加的行保持原来的红色和绿色背景，但空单元格会单独处理显示淡蓝色
+		// 评论区间内只展示深蓝色，不展示红/绿 diff 背景
 		const lightBlue = this.props.useDarkTheme ? 'rgba(45, 74, 107, 0.75)' : 'rgba(140, 180, 220, 0.85)';
-		const rowStyle = (isInCommentRange && left.type !== DiffType.REMOVED && right.type !== DiffType.ADDED) 
-			? { backgroundColor: lightBlue } 
-			: {};
+		const rowStyle = isInCommentRange ? { backgroundColor: lightBlue } : {};
 		// 评论 td 跨多行时需单独设置背景色，否则会遮挡下方行的 row 背景
 		const commentTdBg = isInCommentRange ? lightBlue : 'transparent';
 		
@@ -518,25 +509,16 @@ class DiffViewer extends React.Component<
 	public renderInlineView = (
 		{ left, right }: LineInformation,
 		index: number,
+		isInCommentRangeInline?: boolean,
 	): JSX.Element => {
-		const { commentRowLineNumber, commentRowEndLineNumber } = this.props;
-		// 判断当前行是否在评论范围内
-		let isInCommentRange = false;
-		if (commentRowLineNumber !== undefined) {
-			if (commentRowEndLineNumber !== undefined) {
-				isInCommentRange = index >= commentRowLineNumber && index <= commentRowEndLineNumber;
-			} else {
-				isInCommentRange = index === commentRowLineNumber;
-			}
-		}
-		
-		let content;
-		// 行内模式不显示淡蓝色效果，将 isInCommentRange 设置为 false
-		const isInCommentRangeForInline = false;
+		// 与并排模式一致：评论区间内只展示深蓝色，不展示红/绿 diff 背景
+		const isInCommentRange = isInCommentRangeInline === true;
+		const lightBlue = this.props.useDarkTheme ? 'rgba(45, 74, 107, 0.75)' : 'rgba(140, 180, 220, 0.85)';
+		const rowStyle = isInCommentRange ? { backgroundColor: lightBlue } : {};
 		if (left.type === DiffType.REMOVED && right.type === DiffType.ADDED) {
 			return (
 				<React.Fragment key={index}>
-					<tr className={this.styles.line}>
+					<tr className={this.styles.line} style={rowStyle}>
 						{this.renderLine(
 							left.lineNumber,
 							left.type,
@@ -544,10 +526,10 @@ class DiffViewer extends React.Component<
 							left.value,
 							null,
 							undefined,
-							isInCommentRangeForInline,
+							isInCommentRange,
 						)}
 					</tr>
-					<tr className={this.styles.line}>
+					<tr className={this.styles.line} style={rowStyle}>
 						{this.renderLine(
 							null,
 							right.type,
@@ -555,12 +537,13 @@ class DiffViewer extends React.Component<
 							right.value,
 							right.lineNumber,
 							undefined,
-							isInCommentRangeForInline,
+							isInCommentRange,
 						)}
 					</tr>
 				</React.Fragment>
 			);
 		}
+		let content;
 		if (left.type === DiffType.REMOVED) {
 			content = this.renderLine(
 				left.lineNumber,
@@ -569,7 +552,7 @@ class DiffViewer extends React.Component<
 				left.value,
 				null,
 				undefined,
-				isInCommentRangeForInline,
+				isInCommentRange,
 			);
 		}
 		if (left.type === DiffType.DEFAULT) {
@@ -580,7 +563,7 @@ class DiffViewer extends React.Component<
 				left.value,
 				right.lineNumber,
 				LineNumberPrefix.RIGHT,
-				isInCommentRangeForInline,
+				isInCommentRange,
 			);
 		}
 		if (right.type === DiffType.ADDED) {
@@ -591,12 +574,12 @@ class DiffViewer extends React.Component<
 				right.value,
 				right.lineNumber,
 				undefined,
-				isInCommentRangeForInline,
+				isInCommentRange,
 			);
 		}
 
 		return (
-			<tr key={index} className={this.styles.line}>
+			<tr key={index} className={this.styles.line} style={rowStyle}>
 				{content}
 			</tr>
 		);
@@ -877,7 +860,7 @@ class DiffViewer extends React.Component<
 											const foldLine = lineInformation[foldLineIndex];
 											const diffNodes = splitView
 												? this.renderSplitView(foldLine, foldLineIndex, actualRenderedIndex, lineInformation.length, commentRangeRowSpan)
-												: this.renderInlineView(foldLine, foldLineIndex);
+												: this.renderInlineView(foldLine, foldLineIndex, isInCommentRange(foldLine, foldLineIndex, lineInformation));
 											actualRenderedIndex++;
 											result.push(diffNodes);
 										});
@@ -887,7 +870,7 @@ class DiffViewer extends React.Component<
 											const foldLine = lineInformation[foldLineIndex];
 											const diffNodes = splitView
 												? this.renderSplitView(foldLine, foldLineIndex, actualRenderedIndex, lineInformation.length, commentRangeRowSpan)
-												: this.renderInlineView(foldLine, foldLineIndex);
+												: this.renderInlineView(foldLine, foldLineIndex, isInCommentRange(foldLine, foldLineIndex, lineInformation));
 											actualRenderedIndex++;
 											result.push(diffNodes);
 										});
@@ -907,7 +890,7 @@ class DiffViewer extends React.Component<
 									const foldLine = lineInformation[foldLineIndex];
 									const diffNodes = splitView
 										? this.renderSplitView(foldLine, foldLineIndex, actualRenderedIndex, lineInformation.length, commentRangeRowSpan)
-										: this.renderInlineView(foldLine, foldLineIndex);
+										: this.renderInlineView(foldLine, foldLineIndex, isInCommentRange(foldLine, foldLineIndex, lineInformation));
 									actualRenderedIndex++;
 									result.push(diffNodes);
 								});
@@ -959,7 +942,7 @@ class DiffViewer extends React.Component<
 										const foldLine = lineInformation[foldLineIndex];
 										const diffNodes = splitView
 											? this.renderSplitView(foldLine, foldLineIndex, actualRenderedIndex, lineInformation.length, commentRangeRowSpan)
-											: this.renderInlineView(foldLine, foldLineIndex);
+											: this.renderInlineView(foldLine, foldLineIndex, isInCommentRange(foldLine, foldLineIndex, lineInformation));
 										actualRenderedIndex++;
 										result.push(diffNodes);
 									});
@@ -969,7 +952,7 @@ class DiffViewer extends React.Component<
 									const foldLine = lineInformation[foldLineIndex];
 									const diffNodes = splitView
 										? this.renderSplitView(foldLine, foldLineIndex, actualRenderedIndex, lineInformation.length, commentRangeRowSpan)
-										: this.renderInlineView(foldLine, foldLineIndex);
+										: this.renderInlineView(foldLine, foldLineIndex, isInCommentRange(foldLine, foldLineIndex, lineInformation));
 									actualRenderedIndex++;
 									result.push(diffNodes);
 								});
@@ -981,7 +964,7 @@ class DiffViewer extends React.Component<
 						// 渲染当前行
 				const diffNodes = splitView
 					? this.renderSplitView(line, i, actualRenderedIndex, lineInformation.length, commentRangeRowSpan, i === firstCommentRangeIndex, true)
-					: this.renderInlineView(line, i);
+					: this.renderInlineView(line, i, isInCommentRange(line, i, lineInformation));
 				actualRenderedIndex++;
 					result.push(diffNodes);
 
@@ -1011,7 +994,7 @@ class DiffViewer extends React.Component<
 				(line: LineInformation, i: number): void => {
 					const diffNodes = splitView
 						? this.renderSplitView(line, i, actualRenderedIndex, lineInformation.length, commentRangeRowSpan)
-						: this.renderInlineView(line, i);
+						: this.renderInlineView(line, i, isInCommentRange(line, i, lineInformation));
 					actualRenderedIndex++;
 					result.push(diffNodes);
 					
