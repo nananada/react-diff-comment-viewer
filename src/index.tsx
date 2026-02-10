@@ -270,14 +270,9 @@ class DiffViewer extends React.Component<
 			content = value;
 		}
 
-		// 评论范围内只展示深蓝色，不展示红/绿 diff 背景
-		const lightBlue = this.props.useDarkTheme ? 'rgba(45, 74, 107, 0.75)' : 'rgba(140, 180, 220, 0.85)';
-		const darkerLightBlue = this.props.useDarkTheme ? 'rgba(30, 55, 90, 0.85)' : 'rgba(110, 160, 210, 0.9)';
-		const gutterStyle = isInCommentRange
-			? { backgroundColor: !content ? darkerLightBlue : lightBlue }
-			: {};
-		const emptyCellStyle = isInCommentRange ? { backgroundColor: !content ? darkerLightBlue : lightBlue } : {};
-		const noDiffInCommentRange = isInCommentRange; // 评论区间内不应用红/绿 diff 样式
+		// 评论区间改为虚线边框，不再用实心背景；红/绿 diff 效果始终保留
+		const gutterStyle = {};
+		const emptyCellStyle = {};
 
 		// 在并排视图中，列宽由 colgroup 控制，不设置内联宽度样式
 		// 在行内视图中，保持固定宽度以确保布局稳定
@@ -302,8 +297,8 @@ class DiffViewer extends React.Component<
 						}
 						className={cn(this.styles.gutter, {
 							[this.styles.emptyGutter]: !lineNumber,
-							[this.styles.diffAdded]: added && !noDiffInCommentRange,
-							[this.styles.diffRemoved]: removed && !noDiffInCommentRange,
+							[this.styles.diffAdded]: added,
+							[this.styles.diffRemoved]: removed,
 							[this.styles.highlightedGutter]: highlightLine,
 						})}
 						style={{
@@ -321,8 +316,8 @@ class DiffViewer extends React.Component<
 						}
 						className={cn(this.styles.gutter, {
 							[this.styles.emptyGutter]: !additionalLineNumber,
-							[this.styles.diffAdded]: added && !noDiffInCommentRange,
-							[this.styles.diffRemoved]: removed && !noDiffInCommentRange,
+							[this.styles.diffAdded]: added,
+							[this.styles.diffRemoved]: removed,
 							[this.styles.highlightedGutter]: highlightLine,
 						})}
 						style={{
@@ -337,8 +332,8 @@ class DiffViewer extends React.Component<
 				<td
 					className={cn(this.styles.marker, {
 						[this.styles.emptyLine]: !content,
-						[this.styles.diffAdded]: added && !noDiffInCommentRange,
-						[this.styles.diffRemoved]: removed && !noDiffInCommentRange,
+						[this.styles.diffAdded]: added,
+						[this.styles.diffRemoved]: removed,
 					})}
 					style={{
 						...emptyCellStyle,
@@ -352,8 +347,8 @@ class DiffViewer extends React.Component<
 				<td
 					className={cn(this.styles.content, {
 						[this.styles.emptyLine]: !content,
-						[this.styles.diffAdded]: added && !noDiffInCommentRange,
-						[this.styles.diffRemoved]: removed && !noDiffInCommentRange,
+						[this.styles.diffAdded]: added,
+						[this.styles.diffRemoved]: removed,
 					})}
 					style={{
 						...emptyCellStyle,
@@ -382,6 +377,7 @@ class DiffViewer extends React.Component<
 		commentRangeRowSpan?: number,
 		isFirstRowInCommentRange?: boolean,
 		overrideIsInCommentRange?: boolean,
+		isLastRowInCommentRange?: boolean,
 	): JSX.Element => {
 		const { commentRow, commentRowLineNumber, commentRowEndLineNumber, showDiffOnly } = this.props;
 		// 并排模式：评论框显示在评论范围的第一行（包含相邻的删除行，确保与代码区深蓝色对齐）
@@ -411,11 +407,26 @@ class DiffViewer extends React.Component<
 			}
 		}
 	
-		// 评论区间内只展示深蓝色，不展示红/绿 diff 背景
-		const lightBlue = this.props.useDarkTheme ? 'rgba(45, 74, 107, 0.75)' : 'rgba(140, 180, 220, 0.85)';
-		const rowStyle = isInCommentRange ? { backgroundColor: lightBlue } : {};
-		// 评论 td 跨多行时需单独设置背景色，否则会遮挡下方行的 row 背景
-		const commentTdBg = isInCommentRange ? lightBlue : 'transparent';
+		// 评论区间用深蓝色虚线边框（加粗），框住代码区+右侧评论区；红/绿 diff 效果保留
+		const commentRangeBorderColor = this.props.useDarkTheme ? 'rgba(45, 74, 107, 0.9)' : 'rgba(70, 130, 180, 0.95)';
+		const commentRangeBorderWidth = '2px';
+		const commentRangeBorder = `${commentRangeBorderWidth} dashed ${commentRangeBorderColor}`;
+		const rowStyle: React.CSSProperties = isInCommentRange
+			? {
+					borderLeft: commentRangeBorder,
+					...(isFirstRowInCommentRange ? { borderTop: commentRangeBorder } : {}),
+					...(isLastRowInCommentRange ? { borderBottom: commentRangeBorder } : {}),
+				}
+			: {};
+		const commentTdBg = 'transparent';
+		// 评论区 td 的虚线（右、上、下），使整块虚线框把右侧评论区包进去；该 td 有 rowSpan 故下边框始终画在底部
+		const commentTdBorderStyle: React.CSSProperties = isInCommentRange
+			? {
+					borderRight: commentRangeBorder,
+					...(isFirstRowInCommentRange ? { borderTop: commentRangeBorder } : {}),
+					...(commentRowEndLineNumber !== undefined ? { borderBottom: commentRangeBorder } : {}),
+				}
+			: {};
 		
 		const leftLineNumberTemplate = left.lineNumber ? `${LineNumberPrefix.LEFT}-${left.lineNumber}` : undefined;
 		const rightLineNumberTemplate = right.lineNumber ? `${LineNumberPrefix.RIGHT}-${right.lineNumber}` : undefined;
@@ -447,7 +458,7 @@ class DiffViewer extends React.Component<
 					leftLineNumberTemplate,
 					rightLineNumberTemplate,
 				)}
-				{/* 在开始行显示评论框，rowSpan 覆盖从开始行到结束行的整个区域 */}
+				{/* 在开始行显示评论框，rowSpan 覆盖从开始行到结束行的整个区域；虚线框包含本列 */}
 				{shouldShowComment && commentRowEndLineNumber !== undefined && (
 					<td
 						key="comment"
@@ -458,6 +469,7 @@ class DiffViewer extends React.Component<
 							borderLeft: '1px solid #d0d7de',
 							backgroundColor: commentTdBg,
 							position: 'relative',
+							...commentTdBorderStyle,
 						}}
 						rowSpan={finalCommentRangeRowSpan}>
 						{commentRow}
@@ -474,12 +486,13 @@ class DiffViewer extends React.Component<
 							borderLeft: '1px solid #d0d7de',
 							backgroundColor: commentTdBg,
 							position: 'relative',
+							...commentTdBorderStyle,
 						}}
 						rowSpan={totalLines || 10000}>
 						{commentRow}
 					</td>
 				)}
-				{/* 在开始行显示灰色背景区域，跨越从开始行到结束行的所有行 */}
+				{/* 在开始行显示占位区域，虚线框包含本列 */}
 				{!shouldShowComment && isStartOfCommentRange && commentRowEndLineNumber !== undefined && (
 					<td
 						key="comment-bg"
@@ -488,8 +501,9 @@ class DiffViewer extends React.Component<
 							padding: 0,
 							border: '1px solid rgba(128, 128, 128, 0.2)',
 							borderLeft: '1px solid #d0d7de',
-							backgroundColor: '#f5f5f5',
+							backgroundColor: 'transparent',
 							position: 'relative',
+							...commentTdBorderStyle,
 						}}
 						rowSpan={finalCommentRangeRowSpan}>
 					</td>
@@ -510,11 +524,21 @@ class DiffViewer extends React.Component<
 		{ left, right }: LineInformation,
 		index: number,
 		isInCommentRangeInline?: boolean,
+		isFirstRowInCommentRange?: boolean,
+		isLastRowInCommentRange?: boolean,
 	): JSX.Element => {
-		// 与并排模式一致：评论区间内只展示深蓝色，不展示红/绿 diff 背景
+		// 与并排模式一致：评论区间用深蓝色虚线边框（加粗），红/绿 diff 效果保留
 		const isInCommentRange = isInCommentRangeInline === true;
-		const lightBlue = this.props.useDarkTheme ? 'rgba(45, 74, 107, 0.75)' : 'rgba(140, 180, 220, 0.85)';
-		const rowStyle = isInCommentRange ? { backgroundColor: lightBlue } : {};
+		const commentRangeBorderColor = this.props.useDarkTheme ? 'rgba(45, 74, 107, 0.9)' : 'rgba(70, 130, 180, 0.95)';
+		const commentRangeBorder = `2px dashed ${commentRangeBorderColor}`;
+		const rowStyle: React.CSSProperties = isInCommentRange
+			? {
+					borderLeft: commentRangeBorder,
+					borderRight: commentRangeBorder,
+					...(isFirstRowInCommentRange ? { borderTop: commentRangeBorder } : {}),
+					...(isLastRowInCommentRange ? { borderBottom: commentRangeBorder } : {}),
+				}
+			: {};
 		if (left.type === DiffType.REMOVED && right.type === DiffType.ADDED) {
 			return (
 				<React.Fragment key={index}>
@@ -776,16 +800,21 @@ class DiffViewer extends React.Component<
 		};
 		
 		// 新的折叠逻辑：基于 commentRowLineNumber 和 commentRowEndLineNumber
-		// 计算并排模式下的 commentRangeRowSpan（统计实际在范围内的行数，包含相邻的删除行）
+		// 首/末行索引：并排与行内模式都需要，用于绘制评论区上下虚线
+		// commentRangeRowSpan：仅并排模式需要，用于评论框 td 的 rowSpan
 		let commentRangeRowSpan = 0;
 		let firstCommentRangeIndex: number | null = null;
-		if (commentRowLineNumber !== undefined && commentRowEndLineNumber !== undefined && splitView) {
+		let lastCommentRangeIndex: number | null = null;
+		if (commentRowLineNumber !== undefined) {
 			lineInformation.forEach((line: LineInformation, i: number) => {
 				if (isInCommentRange(line, i, lineInformation)) {
-					commentRangeRowSpan++;
+					if (splitView && commentRowEndLineNumber !== undefined) {
+						commentRangeRowSpan++;
+					}
 					if (firstCommentRangeIndex === null) {
 						firstCommentRangeIndex = i;
 					}
+					lastCommentRangeIndex = i;
 				}
 			});
 		}
@@ -859,8 +888,8 @@ class DiffViewer extends React.Component<
 										linesToShow.forEach((foldLineIndex) => {
 											const foldLine = lineInformation[foldLineIndex];
 											const diffNodes = splitView
-												? this.renderSplitView(foldLine, foldLineIndex, actualRenderedIndex, lineInformation.length, commentRangeRowSpan)
-												: this.renderInlineView(foldLine, foldLineIndex, isInCommentRange(foldLine, foldLineIndex, lineInformation));
+												? this.renderSplitView(foldLine, foldLineIndex, actualRenderedIndex, lineInformation.length, commentRangeRowSpan, foldLineIndex === firstCommentRangeIndex, undefined, foldLineIndex === lastCommentRangeIndex)
+												: this.renderInlineView(foldLine, foldLineIndex, isInCommentRange(foldLine, foldLineIndex, lineInformation), foldLineIndex === firstCommentRangeIndex, foldLineIndex === lastCommentRangeIndex);
 											actualRenderedIndex++;
 											result.push(diffNodes);
 										});
@@ -869,8 +898,8 @@ class DiffViewer extends React.Component<
 										linesToShow.forEach((foldLineIndex) => {
 											const foldLine = lineInformation[foldLineIndex];
 											const diffNodes = splitView
-												? this.renderSplitView(foldLine, foldLineIndex, actualRenderedIndex, lineInformation.length, commentRangeRowSpan)
-												: this.renderInlineView(foldLine, foldLineIndex, isInCommentRange(foldLine, foldLineIndex, lineInformation));
+												? this.renderSplitView(foldLine, foldLineIndex, actualRenderedIndex, lineInformation.length, commentRangeRowSpan, foldLineIndex === firstCommentRangeIndex, undefined, foldLineIndex === lastCommentRangeIndex)
+												: this.renderInlineView(foldLine, foldLineIndex, isInCommentRange(foldLine, foldLineIndex, lineInformation), foldLineIndex === firstCommentRangeIndex, foldLineIndex === lastCommentRangeIndex);
 											actualRenderedIndex++;
 											result.push(diffNodes);
 										});
@@ -889,8 +918,8 @@ class DiffViewer extends React.Component<
 								currentFoldBlockLines.forEach((foldLineIndex) => {
 									const foldLine = lineInformation[foldLineIndex];
 									const diffNodes = splitView
-										? this.renderSplitView(foldLine, foldLineIndex, actualRenderedIndex, lineInformation.length, commentRangeRowSpan)
-										: this.renderInlineView(foldLine, foldLineIndex, isInCommentRange(foldLine, foldLineIndex, lineInformation));
+										? this.renderSplitView(foldLine, foldLineIndex, actualRenderedIndex, lineInformation.length, commentRangeRowSpan, foldLineIndex === firstCommentRangeIndex, undefined, foldLineIndex === lastCommentRangeIndex)
+										: this.renderInlineView(foldLine, foldLineIndex, isInCommentRange(foldLine, foldLineIndex, lineInformation), foldLineIndex === firstCommentRangeIndex, foldLineIndex === lastCommentRangeIndex);
 									actualRenderedIndex++;
 									result.push(diffNodes);
 								});
@@ -941,8 +970,8 @@ class DiffViewer extends React.Component<
 									linesToShow.forEach((foldLineIndex) => {
 										const foldLine = lineInformation[foldLineIndex];
 										const diffNodes = splitView
-											? this.renderSplitView(foldLine, foldLineIndex, actualRenderedIndex, lineInformation.length, commentRangeRowSpan)
-											: this.renderInlineView(foldLine, foldLineIndex, isInCommentRange(foldLine, foldLineIndex, lineInformation));
+											? this.renderSplitView(foldLine, foldLineIndex, actualRenderedIndex, lineInformation.length, commentRangeRowSpan, foldLineIndex === firstCommentRangeIndex, undefined, foldLineIndex === lastCommentRangeIndex)
+											: this.renderInlineView(foldLine, foldLineIndex, isInCommentRange(foldLine, foldLineIndex, lineInformation), foldLineIndex === firstCommentRangeIndex, foldLineIndex === lastCommentRangeIndex);
 										actualRenderedIndex++;
 										result.push(diffNodes);
 									});
@@ -951,8 +980,8 @@ class DiffViewer extends React.Component<
 								currentFoldBlockLines.forEach((foldLineIndex) => {
 									const foldLine = lineInformation[foldLineIndex];
 									const diffNodes = splitView
-										? this.renderSplitView(foldLine, foldLineIndex, actualRenderedIndex, lineInformation.length, commentRangeRowSpan)
-										: this.renderInlineView(foldLine, foldLineIndex, isInCommentRange(foldLine, foldLineIndex, lineInformation));
+										? this.renderSplitView(foldLine, foldLineIndex, actualRenderedIndex, lineInformation.length, commentRangeRowSpan, foldLineIndex === firstCommentRangeIndex, undefined, foldLineIndex === lastCommentRangeIndex)
+										: this.renderInlineView(foldLine, foldLineIndex, isInCommentRange(foldLine, foldLineIndex, lineInformation), foldLineIndex === firstCommentRangeIndex, foldLineIndex === lastCommentRangeIndex);
 									actualRenderedIndex++;
 									result.push(diffNodes);
 								});
@@ -963,8 +992,8 @@ class DiffViewer extends React.Component<
 						
 						// 渲染当前行
 				const diffNodes = splitView
-					? this.renderSplitView(line, i, actualRenderedIndex, lineInformation.length, commentRangeRowSpan, i === firstCommentRangeIndex, true)
-					: this.renderInlineView(line, i, isInCommentRange(line, i, lineInformation));
+					? this.renderSplitView(line, i, actualRenderedIndex, lineInformation.length, commentRangeRowSpan, i === firstCommentRangeIndex, true, i === lastCommentRangeIndex)
+					: this.renderInlineView(line, i, isInCommentRange(line, i, lineInformation), i === firstCommentRangeIndex, i === lastCommentRangeIndex);
 				actualRenderedIndex++;
 					result.push(diffNodes);
 
@@ -993,8 +1022,8 @@ class DiffViewer extends React.Component<
 			lineInformation.forEach(
 				(line: LineInformation, i: number): void => {
 					const diffNodes = splitView
-						? this.renderSplitView(line, i, actualRenderedIndex, lineInformation.length, commentRangeRowSpan)
-						: this.renderInlineView(line, i, isInCommentRange(line, i, lineInformation));
+						? this.renderSplitView(line, i, actualRenderedIndex, lineInformation.length, commentRangeRowSpan, i === firstCommentRangeIndex, undefined, i === lastCommentRangeIndex)
+						: this.renderInlineView(line, i, isInCommentRange(line, i, lineInformation), i === firstCommentRangeIndex, i === lastCommentRangeIndex);
 					actualRenderedIndex++;
 					result.push(diffNodes);
 					
