@@ -80,6 +80,115 @@ const constructLines = (value: string): string[] => {
  * @param compareMethod JsDiff text diff method (deprecated, no longer used).
  * @param linesOffset line number to start counting from
  */
+/** 是否为空或仅空白（用于 comparator，使空白行之间可匹配，避免顺延行被误判为删减） */
+const public_isBlankLine = (s: string): boolean => /^\s*$/.test(s);
+
+/** 两行是否“仅首尾空白不同”视为等价（仅用于 diff 匹配，展示仍用原始行内容） */
+const public_linesMatchIgnoreTrailingWhitespace = (a: string, b: string): boolean =>
+	a.trimRight() === b.trimRight();
+
+/** 行相等：严格相等 / 均空白 / 首尾空白归一后相等（便于 92/94 等行在 diff 中匹配为 SAME） */
+const public_lineEqual = (a: string, b: string): boolean =>
+	a === b ||
+	(public_isBlankLine(a) && public_isBlankLine(b)) ||
+	a.trimRight() === b.trimRight() ||
+	a.trim() === b.trim();
+
+/**
+ * 行级 diff，LCS + 回溯时“优先走能马上匹配的路径”：若 remove 后下一对可匹配则优先 remove，否则若 add 后可匹配则优先 add。
+ * 这样相同行（如 old92=new94）会按顺序匹配为 SAME，不会被标成删除+新增。
+ * 返回与 jsdiff 兼容的 Change[]，便于后续 getLineInformation 复用。
+ */
+function public_diffLinesInOrder(
+	oldLines: string[],
+	newLines: string[],
+	lineEqual: (a: string, b: string) => boolean,
+): diff.Change[] {
+	const ol = oldLines.length;
+	const nl = newLines.length;
+	const dp: number[][] = [];
+	for (let i = 0; i <= ol; i++) {
+		dp[i] = [];
+		for (let j = 0; j <= nl; j++) {
+			if (i === 0 || j === 0) {
+				dp[i][j] = 0;
+			} else if (
+				lineEqual(oldLines[i - 1], newLines[j - 1]) ||
+				oldLines[i - 1].trim() === newLines[j - 1].trim()
+			) {
+				dp[i][j] = dp[i - 1][j - 1] + 1;
+			} else {
+				dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+			}
+		}
+	}
+	const chunks: diff.Change[] = [];
+	let i = ol;
+	let j = nl;
+	let current: { value: string; added?: boolean; removed?: boolean } | null = null;
+	const flush = (): void => {
+		if (current && current.value !== '') {
+			chunks.push(current);
+			current = null;
+		}
+	};
+	const push = (line: string, added?: boolean, removed?: boolean): void => {
+		const lineWithNl = line + '\n';
+		if (current && current.added === added && current.removed === removed) {
+			current.value = lineWithNl + current.value;
+		} else {
+			flush();
+			current = { value: lineWithNl, added, removed };
+		}
+	};
+	while (i > 0 || j > 0) {
+		const curMatch =
+			(i > 0 &&
+				j > 0 &&
+				(lineEqual(oldLines[i - 1], newLines[j - 1]) ||
+					oldLines[i - 1].trim() === newLines[j - 1].trim()));
+		if (i > 0 && j > 0 && curMatch) {
+			push(oldLines[i - 1], false, false);
+			i -= 1;
+			j -= 1;
+		} else if (
+			i > 0 &&
+			j > 0 &&
+			i >= 2 &&
+			(lineEqual(oldLines[i - 2], newLines[j - 1]) ||
+				oldLines[i - 2].trim() === newLines[j - 1].trim())
+		) {
+			push(oldLines[i - 1], false, true);
+			i -= 1;
+		} else if (
+			i > 0 &&
+			j > 0 &&
+			j >= 2 &&
+			(lineEqual(oldLines[i - 1], newLines[j - 2]) ||
+				oldLines[i - 1].trim() === newLines[j - 2].trim())
+		) {
+			push(newLines[j - 1], true, false);
+			j -= 1;
+		} else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+			// 当 dp 相等时优先 add，以便有机会走到 (i,j) 匹配（如 92/94）
+			push(newLines[j - 1], true, false);
+			j -= 1;
+		} else if (i > 0) {
+			push(oldLines[i - 1], false, true);
+			i -= 1;
+		} else if (j > 0) {
+			// 处理剩余的 new 行（当 i=0 但前面条件未匹配时）
+			push(newLines[j - 1], true, false);
+			j -= 1;
+		} else {
+			// i=0 且 j=0，退出
+			break;
+		}
+	}
+	flush();
+	return chunks.reverse();
+}
+
 const computeLineInformation = (
 	oldString: string,
 	newString: string,
@@ -87,14 +196,15 @@ const computeLineInformation = (
 	compareMethod: string = DiffMethod.CHARS,
 	linesOffset: number = 0,
 ): ComputedLineInformation => {
-	const diffArray = diff.diffLines(
-		oldString.trimRight(),
-		newString.trimRight(),
-		{
-			newlineIsToken: true,
-			ignoreWhitespace: false,
-			ignoreCase: false,
-		},
+	const trimmedOld = oldString.trimRight();
+	const trimmedNew = newString.trimRight();
+	const oldLines = trimmedOld.split('\n');
+	const newLines = trimmedNew.split('\n');
+	// 使用自定义“按顺序优先”行级 diff（LCS + 优先走可匹配路径），避免 92/94 等相同行被误判为删除
+	const diffArray: diff.Change[] = public_diffLinesInOrder(
+		oldLines,
+		newLines,
+		public_lineEqual,
 	);
 	let rightLineNumber = linesOffset;
 	let leftLineNumber = linesOffset;
@@ -130,42 +240,65 @@ const computeLineInformation = (
 							leftLineNumber += 1;
 							left.lineNumber = leftLineNumber;
 							left.type = DiffType.REMOVED;
-							left.value = line || ' ';
+							// 展示用原始行内容（归一化仅用于 diff 匹配）
+							left.value =
+								oldLines[leftLineNumber - 1] !== undefined
+									? oldLines[leftLineNumber - 1]
+									: line || ' ';
 							// When the current line is of type REMOVED, check the next item in
 							// the diff array whether it is of type ADDED. If true, the current
 							// diff will be marked as both REMOVED and ADDED. Meaning, the
 							// current line is a modification.
-							const nextDiff = diffArray[diffIndex + 1];
-							if (nextDiff && nextDiff.added) {
-								const nextDiffLines = constructLines(nextDiff.value)[lineIndex];
-								if (nextDiffLines) {
-									const {
-										value: rightValue,
-										lineNumber,
-										type,
-									} = getLineInformation(
-										nextDiff.value,
-										diffIndex,
-										true,
-										false,
-										true,
-									)[0].right;
-									// When identified as modification, push the next diff to ignore
-									// list as the next value will be added in this line computation as
-									// right and left values.
-									ignoreDiffIndexes.push(`${diffIndex + 1}-${lineIndex}`);
-									right.lineNumber = lineNumber;
-									right.type = type;
-									// Assign the corresponding values to the left and right diff information object.
-									right.value = rightValue as string;
-									left.value = line || ' ';
+						const nextDiff = diffArray[diffIndex + 1];
+						if (nextDiff && nextDiff.added) {
+							const nextDiffLines = constructLines(nextDiff.value)[lineIndex];
+							if (nextDiffLines) {
+								const {
+									value: rightValue,
+									lineNumber,
+									type,
+								} = getLineInformation(
+									nextDiff.value,
+									diffIndex,
+									true,
+									false,
+									true,
+								)[0].right;
+								// When identified as modification, push the next diff to ignore
+								// list as the next value will be added in this line computation as
+								// right and left values.
+								ignoreDiffIndexes.push(`${diffIndex + 1}-${lineIndex}`);
+								right.lineNumber = lineNumber;
+								right.type = type;
+								right.value = (newLines[lineNumber - 1] !== undefined
+									? newLines[lineNumber - 1]
+									: rightValue) as string;
+								left.value =
+									oldLines[leftLineNumber - 1] !== undefined
+										? oldLines[leftLineNumber - 1]
+										: line || ' ';
+								// 如果左右内容 trim 后相同，标记为 SAME 而不是修改
+								const leftFinalValue = left.value;
+								const rightFinalValue = right.value;
+								if (
+									leftFinalValue &&
+									rightFinalValue &&
+									(leftFinalValue === rightFinalValue ||
+										leftFinalValue.trim() === rightFinalValue.trim())
+								) {
+									left.type = DiffType.DEFAULT;
+									right.type = DiffType.DEFAULT;
 								}
 							}
+						}
 						} else {
 							rightLineNumber += 1;
 							right.lineNumber = rightLineNumber;
 							right.type = DiffType.ADDED;
-							right.value = line;
+							right.value =
+								newLines[rightLineNumber - 1] !== undefined
+									? newLines[rightLineNumber - 1]
+									: line;
 						}
 					} else {
 						leftLineNumber += 1;
@@ -173,10 +306,16 @@ const computeLineInformation = (
 
 						left.lineNumber = leftLineNumber;
 						left.type = DiffType.DEFAULT;
-						left.value = line;
+						left.value =
+							oldLines[leftLineNumber - 1] !== undefined
+								? oldLines[leftLineNumber - 1]
+								: line;
 						right.lineNumber = rightLineNumber;
 						right.type = DiffType.DEFAULT;
-						right.value = line;
+						right.value =
+							newLines[rightLineNumber - 1] !== undefined
+								? newLines[rightLineNumber - 1]
+								: line;
 					}
 
 					counter += 1;
@@ -186,12 +325,34 @@ const computeLineInformation = (
 			.filter(Boolean);
 	};
 
-	diffArray.forEach(({ added, removed, value }: diff.Change, index): void => {
+	diffArray.forEach(({ added, removed, value }: diff.Change, index: number): void => {
 		lineInformation = [
 			...lineInformation,
 			...getLineInformation(value, index, added, removed),
 		];
 	});
+
+	// 补齐缺失的尾部行（由于 ignoreDiffIndexes 机制可能跳过某些行）
+	while (leftLineNumber < oldLines.length) {
+		leftLineNumber += 1;
+		lineInformation.push({
+			left: {
+				lineNumber: leftLineNumber,
+				type: DiffType.REMOVED,
+				value: oldLines[leftLineNumber - 1],
+			},
+		});
+	}
+	while (rightLineNumber < newLines.length) {
+		rightLineNumber += 1;
+		lineInformation.push({
+			right: {
+				lineNumber: rightLineNumber,
+				type: DiffType.ADDED,
+				value: newLines[rightLineNumber - 1],
+			},
+		});
+	}
 
 	return {
 		lineInformation,

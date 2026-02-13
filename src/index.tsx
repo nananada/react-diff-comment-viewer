@@ -267,9 +267,12 @@ class DiffViewer extends React.Component<
 		if (this.props.renderContent) {
 			content = this.props.renderContent(value);
 		} else {
-			content = value;
+			// 空白行（""、" "、"      " 等）需占位显示，避免空 <pre> 导致行高塌陷
+			content = value === '' ? '\u00A0' : value;
 		}
 
+		// 空白行（空字符串或仅空白）用于 emptyLine 样式与占位显示
+		const isBlankLine = value === '' || (typeof value === 'string' && /^\s*$/.test(value));
 		// 评论区间改为虚线边框，不再用实心背景；红/绿 diff 效果始终保留
 		const gutterStyle = {};
 		const emptyCellStyle = {};
@@ -331,7 +334,7 @@ class DiffViewer extends React.Component<
 				)}
 				<td
 					className={cn(this.styles.marker, {
-						[this.styles.emptyLine]: !content,
+						[this.styles.emptyLine]: isBlankLine,
 						[this.styles.diffAdded]: added,
 						[this.styles.diffRemoved]: removed,
 					})}
@@ -346,7 +349,7 @@ class DiffViewer extends React.Component<
 				</td>
 				<td
 					className={cn(this.styles.content, {
-						[this.styles.emptyLine]: !content,
+						[this.styles.emptyLine]: isBlankLine,
 						[this.styles.diffAdded]: added,
 						[this.styles.diffRemoved]: removed,
 					})}

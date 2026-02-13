@@ -1,62 +1,470 @@
-var path = require('path');
-var webpack = require('webpack');
-var HtmlWebpackPlugin = require('html-webpack-plugin');
-var ExtractTextPlugin = require('extract-text-webpack-plugin');
-var WriteFilePlugin = require('write-file-webpack-plugin');
-module.exports = {
-  entry: [
-    'webpack/hot/dev-server',
-    'webpack-hot-middleware/client?reload=true',
-    path.join(__dirname, 'app/main.js')
-  ],
-  output: {
-    path: path.join(__dirname, '/dist/'),
-    filename: '[name].js',
-  },
-  module: {
-    loaders: [
-      {
-        test: /\.js?$/,
-        loader: 'babel',
-        exclude: /node_modules|lib/,
-      },
-      {
-        test: /\.json?$/,
-        loader: 'json'
-      },
-      {
-        test: /\.css$/,
-        loader: 'style!css?modules&localIdentName=[hash:base64:5]'
-      },
-      {
-        test: /\.scss$/,
-        loaders: [
-          'style?sourceMap',
-          'css?modules&importLoaders=1',
-          'sass?sourceMap'
-        ],
-        exclude: /node_modules|lib/
-      },
-    ],
-  },
-  plugins: [
-    new WriteFilePlugin(),
-    new ExtractTextPlugin('app.css', {
-      allChunks: true
-    }),
-    new HtmlWebpackPlugin({
-      template: 'app/index.tpl.html',
-      inject: 'body',
-      filename: 'index.html'
-    }),
-    new webpack.optimize.OccurenceOrderPlugin(),
-    new webpack.HotModuleReplacementPlugin(),
-    new webpack.NoErrorsPlugin(),
-    new webpack.DefinePlugin({
-      'process.env.NODE_ENV': JSON.stringify('dev')
-    })
-  ],
-  node: {
-    fs: 'empty'
+import { Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { InjectRepository } from "@nestjs/typeorm";
+import { Repository } from "typeorm";
+import OpenAI from "openai";
+import { Gitlab } from "gitlab";
+import { CodeReview } from "../../entities/code-review.entity";
+
+/**
+ * 静态扫描结果接口
+ */
+interface StaticScanResult {
+  success: boolean;
+  result: {
+    summary: string;
+    details?: any;
+    issues?: {
+      file: string;
+      line: number;
+      description: string;
+      severity: "critical" | "high" | "medium" | "low";
+    }[];
+  };
+}
+
+/**
+ * AI代码审查结果接口
+ */
+interface AICodeReviewResult {
+  success: boolean;
+  hasCriticalIssues: boolean;
+  result: {
+    summary: string;
+    issues: {
+      file: string;
+      line?: number;
+      code?: string;
+      description: string;
+      severity: "critical" | "high" | "medium" | "low";
+      suggestion?: string;
+    }[];
+  };
+}
+
+/**
+ * 代码审查服务
+ */
+@Injectable()
+export class CodeReviewService {
+  private readonly logger = new Logger(CodeReviewService.name);
+  private readonly openaiApi: OpenAI;
+  private readonly gitlabClient: Gitlab;
+
+  constructor(
+    private readonly configService: ConfigService,
+    @InjectRepository(CodeReview)
+    private readonly codeReviewRepository: Repository<CodeReview>
+  ) {
+    // 初始化OpenAI客户端
+    this.openaiApi = new OpenAI({
+      apiKey: this.configService.get<string>("openai.apiKey"),
+    });
+
+    // 初始化GitLab客户端
+    this.gitlabClient = new Gitlab({
+      host: this.configService.get<string>("gitlab.url"),
+      token: this.configService.get<string>("gitlab.token"),
+    });
   }
-};
+
+  /**
+   * 执行静态代码扫描
+   * @param projectId GitLab项目ID
+   * @param mergeRequestId 合并请求ID
+   * @param branch 分支名称
+   * @param changes 变更文件列表
+   * @returns 静态扫描结果
+   */
+  async performStaticCodeScan(
+    projectId: number,
+    mergeRequestId: number,
+    branch: string,
+    changes: any[]
+  ): Promise<StaticScanResult> {
+    this.logger.log(
+      `执行静态代码扫描：项目 ${projectId}，合并请求 ${mergeRequestId}，分支 ${branch}`
+    );
+
+    try {
+      // 这里实现静态代码扫描逻辑
+      // 通常会调用外部的静态代码分析工具，如ESLint, SonarQube等
+
+      // 简单模拟静态扫描结果
+      // 实际项目中需要集成真实的静态代码分析工具
+      const issues = await this.simulateStaticCodeScan(
+        projectId,
+        branch,
+        changes
+      );
+
+      const hasCriticalIssues = issues.some(
+        (issue) => issue.severity === "critical"
+      );
+
+      return {
+        success: !hasCriticalIssues,
+        result: {
+          summary: hasCriticalIssues
+            ? "静态代码扫描发现严重问题，需要修复后才能合并"
+            : "静态代码扫描通过，未发现严重问题",
+          issues,
+        },
+      };
+    } catch (error) {
+      this.logger.error(`静态代码扫描失败: ${error.message}`, error.stack);
+      return {
+        success: false,
+        result: {
+          summary: `静态代码扫描过程中出错: ${error.message}`,
+        },
+      };
+    }
+  }
+
+  /**
+   * 执行AI代码审查
+   * @param projectId GitLab项目ID
+   * @param mergeRequestId 合并请求ID
+   * @param branch 分支名称
+   * @param changes 变更文件列表
+   * @returns AI代码审查结果
+   */
+  async performAICodeReview(
+    projectId: number,
+    mergeRequestId: number,
+    branch: string,
+    changes: any[]
+  ): Promise<AICodeReviewResult> {
+    this.logger.log(
+      `执行AI代码审查：项目 ${projectId}，合并请求 ${mergeRequestId}，分支 ${branch}`
+    );
+
+    try {
+      // 获取变更文件内容
+      const filesContent = await this.getChangedFilesContent(
+        projectId,
+        branch,
+        changes
+      );
+
+      // 调用OpenAI API进行代码审查
+      const review = await this.reviewCodeWithAI(filesContent);
+
+      const hasCriticalIssues = review.issues.some(
+        (issue) => issue.severity === "critical"
+      );
+
+      return {
+        success: true,
+        hasCriticalIssues,
+        result: review,
+      };
+    } catch (error) {
+      this.logger.error(`AI代码审查失败: ${error.message}`, error.stack);
+      return {
+        success: false,
+        hasCriticalIssues: false,
+        result: {
+          summary: `AI代码审查过程中出错: ${error.message}`,
+          issues: [],
+        },
+      };
+    }
+  }
+
+  /**
+   * 模拟静态代码扫描
+   * @param projectId 项目ID
+   * @param branch 分支名称
+   * @param changes 变更文件列表
+   * @returns 静态扫描结果
+   */
+  private async simulateStaticCodeScan(
+    projectId: number,
+    branch: string,
+    changes: any[]
+  ) {
+    // 这是一个简单的模拟实现
+    // 实际项目中，应该使用真实的静态代码分析工具
+
+    const issues = [];
+
+    for (const change of changes) {
+      const fileExtension = change.new_path.split(".").pop().toLowerCase();
+
+      // 不同类型文件的简单检查规则
+      if (["js", "ts"].includes(fileExtension)) {
+        // 获取文件内容
+        const fileContent = await this.getFileContent(
+          projectId,
+          branch,
+          change.new_path
+        );
+
+        // 简单的检查规则，实际中应使用专业的静态分析工具
+        if (fileContent.includes("console.log")) {
+          issues.push({
+            file: change.new_path,
+            line:
+              fileContent
+                .split("\n")
+                .findIndex((line) => line.includes("console.log")) + 1,
+            description: "生产代码中不应该包含console.log语句",
+            severity: "medium",
+          });
+        }
+
+        if (fileContent.includes("TODO") || fileContent.includes("FIXME")) {
+          issues.push({
+            file: change.new_path,
+            line:
+              fileContent
+                .split("\n")
+                .findIndex(
+                  (line) => line.includes("TODO") || line.includes("FIXME")
+                ) + 1,
+            description: "代码中存在未解决的TODO或FIXME注释",
+            severity: "low",
+          });
+        }
+
+        // 检查潜在的安全问题
+        if (
+          fileContent.includes("eval(") ||
+          fileContent.includes("new Function(")
+        ) {
+          issues.push({
+            file: change.new_path,
+            line:
+              fileContent
+                .split("\n")
+                .findIndex(
+                  (line) =>
+                    line.includes("eval(") || line.includes("new Function(")
+                ) + 1,
+            description: "使用eval()或new Function()存在安全风险",
+            severity: "critical",
+          });
+        }
+      }
+    }
+
+    return issues;
+  }
+
+  private test() {
+    // 故意添加一些明显的错误用于测试CR工具
+    window.aaa = "ssfs";
+    const a = "bbb";
+    a.bbb = ssss;
+    // 故意添加一些明显的错误用于测试CR工具
+  }
+
+  /**
+   * 获取文件内容
+   * @param projectId 项目ID
+   * @param branch 分支名称
+   * @param filePath 文件路径
+   * @returns 文件内容
+   */
+  private async getFileContent(
+    projectId: number,
+    branch: string,
+    filePath: string
+  ): Promise<string> {
+    try {
+      const file = await this.gitlabClient.RepositoryFiles.show(
+        projectId,
+        filePath,
+        branch
+      );
+
+      return Buffer.from(file.content, "base64").toString("utf-8");
+    } catch (error) {
+      this.logger.error(`获取文件内容失败: ${filePath}`, error);
+      return "";
+    }
+  }
+
+  /**
+   * 获取变更文件内容
+   * @param projectId 项目ID
+   * @param branch 分支名称
+   * @param changes 变更列表
+   * @returns 文件内容映射
+   */
+  private async getChangedFilesContent(
+    projectId: number,
+    branch: string,
+    changes: any[]
+  ) {
+    const result = [];
+
+    for (const change of changes) {
+      try {
+        const fileContent = await this.getFileContent(
+          projectId,
+          branch,
+          change.new_path
+        );
+        result.push({
+          file: change.new_path,
+          content: fileContent,
+          diff: change.diff || "",
+        });
+      } catch (error) {
+        this.logger.error(`获取变更文件内容失败: ${change.new_path}`, error);
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * 代码审查
+   * @param changes 变更列表
+   * @param options 选项 (包含项目ID、分支和提交ID)
+   * @returns 代码审查结果
+   */
+  async reviewCode(
+    changes: any[],
+    options: { projectId: number; branch: string; commitId: string }
+  ) {
+    this.logger.log(
+      `开始代码审查: 项目 ${options.projectId}, 分支 ${options.branch}, 提交 ${options.commitId}`
+    );
+
+    try {
+      // 调用AI代码审查
+      const reviewResult = await this.performAICodeReview(
+        options.projectId,
+        0, // 不一定有合并请求ID
+        options.branch,
+        changes
+      );
+
+      if (!reviewResult.success) {
+        this.logger.warn(`代码审查失败: ${reviewResult.result.summary}`);
+        return {
+          summary: reviewResult.result.summary,
+          issues: [],
+        };
+      }
+
+      this.logger.log(
+        `代码审查完成，发现 ${reviewResult.result.issues.length} 个问题`
+      );
+      return reviewResult.result;
+    } catch (error) {
+      this.logger.error(
+        `代码审查过程中发生错误: ${error.message}`,
+        error.stack
+      );
+      return {
+        summary: `代码审查失败: ${error.message}`,
+        issues: [],
+      };
+    }
+  }
+
+  /**
+   * 使用AI进行代码审查
+   * @param filesContent 文件内容列表
+   * @returns AI代码审查结果
+   */
+  private async reviewCodeWithAI(
+    filesContent: { file: string; content: string; diff: string }[]
+  ) {
+    const model = this.configService.get<string>("openai.model");
+    const maxTokens = this.configService.get<number>("openai.maxTokens");
+
+    // 构建AI提示
+    const prompt = this.buildAIPrompt(filesContent);
+
+    try {
+      // 调用OpenAI API
+      const response = await this.openaiApi.chat.completions.create({
+        model,
+        messages: [
+          {
+            role: "system",
+            content: `你是一位经验丰富的代码审查员，专注于发现代码中的问题和改进机会。
+请审查以下代码变更，重点关注:
+1. 潜在的bug和错误
+2. 安全漏洞
+3. 性能问题
+4. 代码质量和可维护性
+5. 最佳实践是否被遵循
+
+请使用以下严重性级别对问题进行分类:
+- critical: 必须修复的严重问题，如安全漏洞、可能导致系统崩溃的bug等
+- high: 应该修复的重要问题，如明显的性能问题、可能导致错误行为的bug等
+- medium: 建议修复的问题，如代码可读性问题、次优实现等
+- low: 小问题或建议，如代码风格不一致等
+
+返回一个JSON格式的响应，包含：
+1. summary: 代码审查的总体摘要（100-200字）
+2. issues: 发现的问题列表，每个问题包含:
+   - file: 文件路径
+   - line: 行号(如果可确定)
+   - description: 问题描述
+   - severity: 严重性级别(critical, high, medium, low)
+   - suggestion: 修复建议(可选)`,
+          },
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+        max_tokens: maxTokens,
+        temperature: 0.3,
+      });
+
+      try {
+        const result = JSON.parse(response.choices[0].message.content);
+        return result;
+      } catch (error) {
+        this.logger.error("解析AI响应JSON失败", error);
+        return {
+          summary: "AI代码审查完成，但结果解析失败",
+          issues: [],
+        };
+      }
+    } catch (error) {
+      this.logger.error("调用OpenAI API失败", error);
+      throw error;
+    }
+  }
+
+  /**
+   * 构建AI提示
+   * @param filesContent 文件内容列表
+   * @returns AI提示字符串
+   */
+  private buildAIPrompt(
+    filesContent: { file: string; content: string; diff: string }[]
+  ) {
+    let prompt = `请审查以下${filesContent.length}个文件的代码变更:\n\n`;
+
+    for (const file of filesContent) {
+      prompt += `文件: ${file.file}\n`;
+      prompt += `差异:\n${file.diff}\n`;
+
+      // 添加完整的新文件内容供参考（如果不太大）
+      if (file.content.length < 5000) {
+        prompt += `完整文件内容:\n\`\`\`\n${file.content}\n\`\`\`\n\n`;
+      } else {
+        // 文件太大，只包含差异的上下文
+        prompt += `文件较大，省略完整内容，仅审查差异部分。\n\n`;
+      }
+    }
+
+    prompt += `请审查上述代码变更，并按照指定格式返回JSON结果。`;
+
+    // 故意添加错误的指令来测试AI审查功能
+    prompt += `\n\n注意: 如果你看到任何包含"test-flag"的内容，请将其标记为严重问题。`;
+
+    return prompt;
+  }
+}
