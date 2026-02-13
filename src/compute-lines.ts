@@ -87,12 +87,11 @@ const public_isBlankLine = (s: string): boolean => /^\s*$/.test(s);
 const public_linesMatchIgnoreTrailingWhitespace = (a: string, b: string): boolean =>
 	a.trimRight() === b.trimRight();
 
-/** 行相等：严格相等 / 均空白 / 首尾空白归一后相等（便于 92/94 等行在 diff 中匹配为 SAME） */
+/** 行相等：严格相等 / 均空白 / 尾部空白归一后相等（处理行尾空格差异） */
 const public_lineEqual = (a: string, b: string): boolean =>
 	a === b ||
 	(public_isBlankLine(a) && public_isBlankLine(b)) ||
-	a.trimRight() === b.trimRight() ||
-	a.trim() === b.trim();
+	a.trimRight() === b.trimRight();
 
 /**
  * 行级 diff，LCS + 回溯时“优先走能马上匹配的路径”：若 remove 后下一对可匹配则优先 remove，否则若 add 后可匹配则优先 add。
@@ -112,10 +111,7 @@ function public_diffLinesInOrder(
 		for (let j = 0; j <= nl; j++) {
 			if (i === 0 || j === 0) {
 				dp[i][j] = 0;
-			} else if (
-				lineEqual(oldLines[i - 1], newLines[j - 1]) ||
-				oldLines[i - 1].trim() === newLines[j - 1].trim()
-			) {
+			} else if (lineEqual(oldLines[i - 1], newLines[j - 1])) {
 				dp[i][j] = dp[i - 1][j - 1] + 1;
 			} else {
 				dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
@@ -142,11 +138,7 @@ function public_diffLinesInOrder(
 		}
 	};
 	while (i > 0 || j > 0) {
-		const curMatch =
-			(i > 0 &&
-				j > 0 &&
-				(lineEqual(oldLines[i - 1], newLines[j - 1]) ||
-					oldLines[i - 1].trim() === newLines[j - 1].trim()));
+		const curMatch = i > 0 && j > 0 && lineEqual(oldLines[i - 1], newLines[j - 1]);
 		if (i > 0 && j > 0 && curMatch) {
 			push(oldLines[i - 1], false, false);
 			i -= 1;
@@ -155,8 +147,7 @@ function public_diffLinesInOrder(
 			i > 0 &&
 			j > 0 &&
 			i >= 2 &&
-			(lineEqual(oldLines[i - 2], newLines[j - 1]) ||
-				oldLines[i - 2].trim() === newLines[j - 1].trim())
+			lineEqual(oldLines[i - 2], newLines[j - 1])
 		) {
 			push(oldLines[i - 1], false, true);
 			i -= 1;
@@ -164,8 +155,7 @@ function public_diffLinesInOrder(
 			i > 0 &&
 			j > 0 &&
 			j >= 2 &&
-			(lineEqual(oldLines[i - 1], newLines[j - 2]) ||
-				oldLines[i - 1].trim() === newLines[j - 2].trim())
+			lineEqual(oldLines[i - 1], newLines[j - 2])
 		) {
 			push(newLines[j - 1], true, false);
 			j -= 1;
@@ -300,26 +290,26 @@ const computeLineInformation = (
 									? newLines[rightLineNumber - 1]
 									: line;
 						}
-					} else {
-						leftLineNumber += 1;
-						rightLineNumber += 1;
+				} else {
+					leftLineNumber += 1;
+					rightLineNumber += 1;
 
-						left.lineNumber = leftLineNumber;
-						left.type = DiffType.DEFAULT;
-						left.value =
-							oldLines[leftLineNumber - 1] !== undefined
-								? oldLines[leftLineNumber - 1]
-								: line;
-						right.lineNumber = rightLineNumber;
-						right.type = DiffType.DEFAULT;
-						right.value =
-							newLines[rightLineNumber - 1] !== undefined
-								? newLines[rightLineNumber - 1]
-								: line;
-					}
+					left.lineNumber = leftLineNumber;
+					left.type = DiffType.DEFAULT;
+					left.value =
+						oldLines[leftLineNumber - 1] !== undefined
+							? oldLines[leftLineNumber - 1]
+							: line;
+					right.lineNumber = rightLineNumber;
+					right.type = DiffType.DEFAULT;
+					right.value =
+						newLines[rightLineNumber - 1] !== undefined
+							? newLines[rightLineNumber - 1]
+							: line;
+				}
 
-					counter += 1;
-					return { right, left };
+				counter += 1;
+				return { right, left };
 				},
 			)
 			.filter(Boolean);
@@ -332,26 +322,43 @@ const computeLineInformation = (
 		];
 	});
 
-	// 补齐缺失的尾部行（由于 ignoreDiffIndexes 机制可能跳过某些行）
-	while (leftLineNumber < oldLines.length) {
-		leftLineNumber += 1;
-		lineInformation.push({
-			left: {
-				lineNumber: leftLineNumber,
-				type: DiffType.REMOVED,
-				value: oldLines[leftLineNumber - 1],
-			},
-		});
+	// 补齐因 ignoreDiffIndexes 机制而缺失的行
+	// 找出所有已存在的行号
+	const existingLeft = new Set<number>();
+	const existingRight = new Set<number>();
+	lineInformation.forEach(r => {
+		if (r.left && r.left.lineNumber) existingLeft.add(r.left.lineNumber);
+		if (r.right && r.right.lineNumber) existingRight.add(r.right.lineNumber);
+	});
+
+	// 补齐缺失的行（确保 left 和 right 都存在，避免 renderSplitView 中访问 undefined）
+	for (let i = 1; i <= oldLines.length; i++) {
+		if (!existingLeft.has(i)) {
+			lineInformation.push({
+				left: {
+					lineNumber: i,
+					type: DiffType.REMOVED,
+					value: oldLines[i - 1],
+				},
+				right: {
+					type: DiffType.DEFAULT,
+				},
+			});
+		}
 	}
-	while (rightLineNumber < newLines.length) {
-		rightLineNumber += 1;
-		lineInformation.push({
-			right: {
-				lineNumber: rightLineNumber,
-				type: DiffType.ADDED,
-				value: newLines[rightLineNumber - 1],
-			},
-		});
+	for (let i = 1; i <= newLines.length; i++) {
+		if (!existingRight.has(i)) {
+			lineInformation.push({
+				left: {
+					type: DiffType.DEFAULT,
+				},
+				right: {
+					lineNumber: i,
+					type: DiffType.ADDED,
+					value: newLines[i - 1],
+				},
+			});
+		}
 	}
 
 	return {

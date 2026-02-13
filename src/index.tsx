@@ -862,8 +862,8 @@ class DiffViewer extends React.Component<
 									result.push(this.renderSkippedLineIndicator(
 										totalLines,
 										foldBlockId,
-										firstLine.left.lineNumber,
-										(lastLine.right && lastLine.right.lineNumber != null ? lastLine.right.lineNumber : lastLine.left.lineNumber),
+										firstLine.left && firstLine.left.lineNumber,
+										(lastLine.right && lastLine.right.lineNumber != null ? lastLine.right.lineNumber : (lastLine.left && lastLine.left.lineNumber)),
 										totalLines,
 									));
 								} else {
@@ -884,8 +884,8 @@ class DiffViewer extends React.Component<
 										result.push(this.renderSkippedLineIndicator(
 											remaining,
 											foldBlockId,
-											remainingFirstLine.left.lineNumber,
-											(remainingLastLine.right && remainingLastLine.right.lineNumber != null ? remainingLastLine.right.lineNumber : remainingLastLine.left.lineNumber),
+											remainingFirstLine.left && remainingFirstLine.left.lineNumber,
+											(remainingLastLine.right && remainingLastLine.right.lineNumber != null ? remainingLastLine.right.lineNumber : (remainingLastLine.left && remainingLastLine.left.lineNumber)),
 											totalLines,
 										));
 										linesToShow.forEach((foldLineIndex) => {
@@ -910,8 +910,8 @@ class DiffViewer extends React.Component<
 										result.push(this.renderSkippedLineIndicator(
 											remaining,
 											foldBlockId,
-											remainingFirstLine.left.lineNumber,
-											(remainingLastLine.right && remainingLastLine.right.lineNumber != null ? remainingLastLine.right.lineNumber : remainingLastLine.left.lineNumber),
+											remainingFirstLine.left && remainingFirstLine.left.lineNumber,
+											(remainingLastLine.right && remainingLastLine.right.lineNumber != null ? remainingLastLine.right.lineNumber : (remainingLastLine.left && remainingLastLine.left.lineNumber)),
 											totalLines,
 										));
 									}
@@ -951,8 +951,8 @@ class DiffViewer extends React.Component<
 									result.push(this.renderSkippedLineIndicator(
 										totalLines,
 										foldBlockId,
-										firstLine.left.lineNumber,
-										(lastLine.right && lastLine.right.lineNumber != null ? lastLine.right.lineNumber : lastLine.left.lineNumber),
+										firstLine.left && firstLine.left.lineNumber,
+										(lastLine.right && lastLine.right.lineNumber != null ? lastLine.right.lineNumber : (lastLine.left && lastLine.left.lineNumber)),
 										totalLines,
 									));
 								} else {
@@ -966,8 +966,8 @@ class DiffViewer extends React.Component<
 									result.push(this.renderSkippedLineIndicator(
 										remaining,
 										foldBlockId,
-										remainingFirstLine.left.lineNumber,
-										(remainingLastLine.right && remainingLastLine.right.lineNumber != null ? remainingLastLine.right.lineNumber : remainingLastLine.left.lineNumber),
+										remainingFirstLine.left && remainingFirstLine.left.lineNumber,
+										(remainingLastLine.right && remainingLastLine.right.lineNumber != null ? remainingLastLine.right.lineNumber : (remainingLastLine.left && remainingLastLine.left.lineNumber)),
 										totalLines,
 									));
 									linesToShow.forEach((foldLineIndex) => {
